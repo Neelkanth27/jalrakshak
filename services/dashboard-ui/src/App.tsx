@@ -87,7 +87,7 @@ export const App: React.FC = () => {
           try {
             const freshData: TelemetryData = JSON.parse(event.data);
             setTelemetry(freshData);
-            setHistory((prev) => [...prev.slice(-49), freshData]);
+            setHistory((prev: TelemetryData[]) => [...prev.slice(-49), freshData]);
           } catch (e) {
             console.error('Failed to parse WebSocket telemetry packet:', e);
           }
