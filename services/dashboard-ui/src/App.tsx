@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
-import { WqiGauge } from './components/WqiGauge';
 import { DiagnosisBanner } from './components/DiagnosisBanner';
+import { HistoryTable } from './components/HistoryTable';
+import { WqiGauge } from './components/WqiGauge';
 import { MetricCards } from './components/MetricCards';
 import { TelemetryChart } from './components/TelemetryChart';
 import { TelegramModal } from './components/TelegramModal';
@@ -30,14 +31,9 @@ export const App: React.FC = () => {
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isTelegramModalOpen, setIsTelegramModalOpen] = useState<boolean>(false);
 
-  // Setup WebSocket connection to backend
-  useEffect(() => {
+  const fetchHistory = useCallback(() => {
     const apiHost = window.location.hostname || 'localhost';
-    const wsUrl = `ws://${apiHost}:8000/ws/telemetry`;
-    const httpUrl = `http://${apiHost}:8000/telemetry`;
-
-    // Initial HTTP fetch: load rolling telemetry history from backend
-    fetch(`${httpUrl}/history`)
+    fetch(`http://${apiHost}:8000/telemetry/history`)
       .then((res) => (res.ok ? res.json() : []))
       .then((data: TelemetryData[]) => {
         if (data && data.length > 0) {
@@ -46,8 +42,15 @@ export const App: React.FC = () => {
         }
       })
       .catch(() => console.log('Waiting for initial telemetry stream...'));
+  }, []);
 
-    // WebSocket listener
+  // Setup WebSocket connection and initial history fetch
+  useEffect(() => {
+    fetchHistory();
+
+    const apiHost = window.location.hostname || 'localhost';
+    const wsUrl = `ws://${apiHost}:8000/ws/telemetry`;
+
     let ws: WebSocket;
     let reconnectTimer: ReturnType<typeof setTimeout>;
 
@@ -63,7 +66,7 @@ export const App: React.FC = () => {
         try {
           const freshData: TelemetryData = JSON.parse(event.data);
           setTelemetry(freshData);
-          setHistory((prev) => [...prev.slice(-30), freshData]);
+          setHistory((prev) => [...prev.slice(-49), freshData]);
         } catch (e) {
           console.error('Failed to parse WebSocket telemetry packet:', e);
         }
@@ -85,7 +88,7 @@ export const App: React.FC = () => {
       clearTimeout(reconnectTimer);
       if (ws) ws.close();
     };
-  }, []);
+  }, [fetchHistory]);
 
   return (
     <div className="min-h-screen bg-[#0B0F19] text-gray-100 flex flex-col font-sans">
@@ -99,8 +102,11 @@ export const App: React.FC = () => {
 
       {/* Main Content Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
-        {/* Top Section: Smart Contaminant Diagnosis Banner */}
+        {/* Top-Level 1: Smart Contaminant Diagnosis Banner */}
         <DiagnosisBanner signature={telemetry.contaminant_signature} state={telemetry.state} />
+
+        {/* Top-Level 2: Historical Telemetry & Audit Log Table (Prominently at the top) */}
+        <HistoryTable history={history} onRefresh={fetchHistory} />
 
         {/* Core Analytics Grid: Circular WQI Gauge + Trend Chart */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
