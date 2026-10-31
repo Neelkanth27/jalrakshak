@@ -6,6 +6,7 @@ WORKDIR /app
 # Prevent Python from writing .pyc and buffer output for container logs
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,8 +18,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application source code
+# Copy application source code and tests
 COPY app/ ./app/
+COPY tests/ ./tests/
 
 # Expose FastAPI service port
 EXPOSE 8000
