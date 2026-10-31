@@ -1,5 +1,5 @@
 import React from 'react';
-import { TrendingUp, Clock } from 'lucide-react';
+import { TrendingUp } from 'lucide-react';
 import { TelemetryData } from '../types';
 
 interface TelemetryChartProps {
@@ -7,21 +7,15 @@ interface TelemetryChartProps {
 }
 
 export const TelemetryChart: React.FC<TelemetryChartProps> = ({ history }) => {
-  if (history.length < 2) {
-    return (
-      <div className="bg-[#111827] border border-gray-800 rounded-2xl p-6 text-center text-gray-500 text-xs py-16">
-        <Clock className="h-6 w-6 mx-auto mb-2 opacity-40 animate-spin" />
-        Accumulating streaming telemetry history from ESP32 edge node...
-      </div>
-    );
-  }
+  // If only 1 sample exists, project a steady baseline line across the chart
+  const displayHistory = history.length === 1 ? [history[0], history[0]] : history;
 
   // Draw SVG sparkline for WQI
   const height = 140;
   const width = 600;
   const padding = 20;
 
-  const points = history.slice(-25).map((item, index, arr) => {
+  const points = displayHistory.slice(-25).map((item, index, arr) => {
     const x = padding + (index / (arr.length - 1)) * (width - 2 * padding);
     const y = height - padding - (item.wqi / 100) * (height - 2 * padding);
     return `${x},${y}`;

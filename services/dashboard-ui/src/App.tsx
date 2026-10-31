@@ -36,13 +36,13 @@ export const App: React.FC = () => {
     const wsUrl = `ws://${apiHost}:8000/ws/telemetry`;
     const httpUrl = `http://${apiHost}:8000/telemetry`;
 
-    // Initial HTTP fetch
-    fetch(`${httpUrl}/latest`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data) {
-          setTelemetry(data);
-          setHistory((prev) => [...prev, data]);
+    // Initial HTTP fetch: load rolling telemetry history from backend
+    fetch(`${httpUrl}/history`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: TelemetryData[]) => {
+        if (data && data.length > 0) {
+          setHistory(data);
+          setTelemetry(data[data.length - 1]);
         }
       })
       .catch(() => console.log('Waiting for initial telemetry stream...'));
