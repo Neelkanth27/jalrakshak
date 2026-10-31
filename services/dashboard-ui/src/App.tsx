@@ -31,9 +31,30 @@ export const App: React.FC = () => {
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isTelegramModalOpen, setIsTelegramModalOpen] = useState<boolean>(false);
 
-  const fetchHistory = useCallback(() => {
+  const getApiUrl = useCallback((path: string) => {
+    const customApi = import.meta.env.VITE_API_URL;
+    if (customApi) {
+      return `${customApi.replace(/\/$/, '')}${path}`;
+    }
     const apiHost = window.location.hostname || 'localhost';
-    fetch(`http://${apiHost}:8000/telemetry/history`)
+    const isHttps = window.location.protocol === 'https:';
+    // If on https, avoid mixed content; fallback to relative path if hosted together, or same host
+    if (isHttps) {
+      return `https://${apiHost}${path}`;
+    }
+    return `http://${apiHost}:8000${path}`;
+  }, []);
+
+  const getWsUrl = useCallback(() => {
+    const customWs = import.meta.env.VITE_WS_URL;
+    if (customWs) return customWs;
+    const apiHost = window.location.hostname || 'localhost';
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${wsProto}//${apiHost}:8000/ws/telemetry`;
+  }, []);
+
+  const fetchHistory = useCallback(() => {
+    fetch(getApiUrl('/telemetry/history'))
       .then((res) => (res.ok ? res.json() : []))
       .then((data: TelemetryData[]) => {
         if (data && data.length > 0) {
@@ -42,53 +63,63 @@ export const App: React.FC = () => {
         }
       })
       .catch(() => console.log('Waiting for initial telemetry stream...'));
-  }, []);
+  }, [getApiUrl]);
 
   // Setup WebSocket connection and initial history fetch
   useEffect(() => {
     fetchHistory();
 
-    const apiHost = window.location.hostname || 'localhost';
-    const wsUrl = `ws://${apiHost}:8000/ws/telemetry`;
-
+    const wsUrl = getWsUrl();
     let ws: WebSocket;
     let reconnectTimer: ReturnType<typeof setTimeout>;
+    let pollingInterval: ReturnType<typeof setInterval>;
 
     const connectWebSocket = () => {
-      ws = new WebSocket(wsUrl);
+      try {
+        ws = new WebSocket(wsUrl);
 
-      ws.onopen = () => {
-        setIsConnected(true);
-        console.log('Connected to JalRakshak Telemetry WebSocket stream.');
-      };
+        ws.onopen = () => {
+          setIsConnected(true);
+          console.log('Connected to JalRakshak Telemetry WebSocket stream.');
+        };
 
-      ws.onmessage = (event) => {
-        try {
-          const freshData: TelemetryData = JSON.parse(event.data);
-          setTelemetry(freshData);
-          setHistory((prev) => [...prev.slice(-49), freshData]);
-        } catch (e) {
-          console.error('Failed to parse WebSocket telemetry packet:', e);
-        }
-      };
+        ws.onmessage = (event) => {
+          try {
+            const freshData: TelemetryData = JSON.parse(event.data);
+            setTelemetry(freshData);
+            setHistory((prev) => [...prev.slice(-49), freshData]);
+          } catch (e) {
+            console.error('Failed to parse WebSocket telemetry packet:', e);
+          }
+        };
 
-      ws.onclose = () => {
+        ws.onclose = () => {
+          setIsConnected(false);
+          reconnectTimer = setTimeout(connectWebSocket, 4000);
+        };
+
+        ws.onerror = () => {
+          ws.close();
+        };
+      } catch (err) {
         setIsConnected(false);
-        reconnectTimer = setTimeout(connectWebSocket, 3000);
-      };
-
-      ws.onerror = () => {
-        ws.close();
-      };
+        reconnectTimer = setTimeout(connectWebSocket, 4000);
+      }
     };
 
     connectWebSocket();
 
+    // Fallback periodic poll to ensure live updates even if WebSocket is blocked (e.g. serverless)
+    pollingInterval = setInterval(() => {
+      fetchHistory();
+    }, 5000);
+
     return () => {
       clearTimeout(reconnectTimer);
+      clearInterval(pollingInterval);
       if (ws) ws.close();
     };
-  }, [fetchHistory]);
+  }, [fetchHistory, getWsUrl]);
 
   return (
     <div className="min-h-screen bg-[#0B0F19] text-gray-100 flex flex-col font-sans">
