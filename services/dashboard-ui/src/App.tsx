@@ -102,11 +102,8 @@ export const App: React.FC = () => {
 
       {/* Main Content Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
-        {/* Top-Level 1: Smart Contaminant Diagnosis Banner */}
+        {/* Top Section: Smart Contaminant Diagnosis Banner */}
         <DiagnosisBanner signature={telemetry.contaminant_signature} state={telemetry.state} />
-
-        {/* Top-Level 2: Historical Telemetry & Audit Log Table (Prominently at the top) */}
-        <HistoryTable history={history} onRefresh={fetchHistory} />
 
         {/* Core Analytics Grid: Circular WQI Gauge + Trend Chart */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -124,6 +121,9 @@ export const App: React.FC = () => {
 
         {/* Physical Sensor Metric Cards */}
         <MetricCards telemetry={telemetry} />
+
+        {/* Historical Telemetry & Audit Log Table (Placed cleanly at the bottom) */}
+        <HistoryTable history={history} onRefresh={fetchHistory} />
       </main>
 
       {/* Footer */}

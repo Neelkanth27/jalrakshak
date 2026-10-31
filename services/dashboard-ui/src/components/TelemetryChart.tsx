@@ -10,14 +10,24 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({ history }) => {
   // If only 1 sample exists, project a steady baseline line across the chart
   const displayHistory = history.length === 1 ? [history[0], history[0]] : history;
 
-  // Draw SVG sparkline for WQI
-  const height = 140;
+  // Chart layout dimensions with dedicated left gutter for labels
+  const height = 150;
   const width = 600;
-  const padding = 20;
+  const paddingLeft = 85; // Gutter for Y-axis text
+  const paddingRight = 20;
+  const paddingTop = 20;
+  const paddingBottom = 25;
+
+  const plotWidth = width - paddingLeft - paddingRight;
+  const plotHeight = height - paddingTop - paddingBottom;
+
+  const y100 = paddingTop;
+  const y50 = paddingTop + plotHeight / 2;
+  const y0 = paddingTop + plotHeight;
 
   const points = displayHistory.slice(-25).map((item, index, arr) => {
-    const x = padding + (index / (arr.length - 1)) * (width - 2 * padding);
-    const y = height - padding - (item.wqi / 100) * (height - 2 * padding);
+    const x = paddingLeft + (index / (arr.length - 1)) * plotWidth;
+    const y = paddingTop + (1 - item.wqi / 100) * plotHeight;
     return `${x},${y}`;
   });
 
@@ -37,17 +47,26 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({ history }) => {
 
       <div className="w-full overflow-hidden">
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-36">
-          {/* Subtle Grid Lines */}
-          <line x1={padding} y1={padding} x2={width - padding} y2={padding} stroke="#1f2937" strokeDasharray="4 4" />
-          <line x1={padding} y1={height / 2} x2={width - padding} y2={height / 2} stroke="#1f2937" strokeDasharray="4 4" />
-          <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#1f2937" />
+          {/* Y-Axis Reference Labels (Placed in left gutter outside the plot area) */}
+          <text x={paddingLeft - 8} y={y100 + 3.5} textAnchor="end" fill="#6b7280" fontSize="10" fontFamily="monospace">
+            100 (Pristine)
+          </text>
+          <text x={paddingLeft - 8} y={y50 + 3.5} textAnchor="end" fill="#6b7280" fontSize="10" fontFamily="monospace">
+            50 (Caution)
+          </text>
+          <text x={paddingLeft - 8} y={y0 + 3.5} textAnchor="end" fill="#6b7280" fontSize="10" fontFamily="monospace">
+            0 (Anomaly)
+          </text>
 
-          {/* Reference labels */}
-          <text x={padding + 4} y={padding + 12} fill="#6b7280" fontSize="10" fontFamily="monospace">100 (Pristine)</text>
-          <text x={padding + 4} y={height / 2 - 4} fill="#6b7280" fontSize="10" fontFamily="monospace">50 (Caution)</text>
-          <text x={padding + 4} y={height - padding - 4} fill="#6b7280" fontSize="10" fontFamily="monospace">0 (Anomaly)</text>
+          {/* Grid lines strictly inside the plot area */}
+          <line x1={paddingLeft} y1={y100} x2={width - paddingRight} y2={y100} stroke="#1f2937" strokeDasharray="4 4" />
+          <line x1={paddingLeft} y1={y50} x2={width - paddingRight} y2={y50} stroke="#1f2937" strokeDasharray="4 4" />
+          <line x1={paddingLeft} y1={y0} x2={width - paddingRight} y2={y0} stroke="#1f2937" />
 
-          {/* WQI Trend Line */}
+          {/* Y-Axis vertical boundary line */}
+          <line x1={paddingLeft} y1={paddingTop - 6} x2={paddingLeft} y2={y0} stroke="#1f2937" />
+
+          {/* WQI Trend Line (Never overlaps labels) */}
           <path
             d={pathD}
             fill="none"
