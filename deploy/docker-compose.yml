@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  mqtt-broker:
+    image: eclipse-mosquitto:2.0
+    container_name: jalrakshak-mqtt
+    restart: unless-stopped
+    ports:
+      - "1883:1883"   # Standard MQTT for ESP32 & Backend
+      - "9001:9001"   # WebSockets for browser clients
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+
+  ingestion-api:
+    build:
+      context: ../services/ingestion-api
+      dockerfile: Dockerfile
+    container_name: jalrakshak-ingestion-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      - MQTT_BROKER_HOST=mqtt-broker
+      - MQTT_BROKER_PORT=1883
+      - MQTT_TELEMETRY_TOPIC=${MQTT_TELEMETRY_TOPIC:-jalrakshak/telemetry}
+      - MQTT_ALERTS_TOPIC=${MQTT_ALERTS_TOPIC:-jalrakshak/alerts}
+    depends_on:
+      - mqtt-broker
