@@ -23,6 +23,7 @@ services:
       - MQTT_TELEMETRY_TOPIC=${MQTT_TELEMETRY_TOPIC:-jalrakshak/telemetry}
       - MQTT_ALERTS_TOPIC=${MQTT_ALERTS_TOPIC:-jalrakshak/alerts}
       - APP_TIMEZONE=${APP_TIMEZONE:-Asia/Kolkata}
+      - DEVICE_API_KEY=${DEVICE_API_KEY:-jal_sec_dev_local_key}
     depends_on:
       - mqtt-broker
 

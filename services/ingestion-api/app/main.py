@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Deque, List, Optional
 
 import paho.mqtt.client as mqtt
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import (
@@ -38,6 +38,18 @@ MQTT_HOST = os.getenv("MQTT_BROKER_HOST", "mqtt-broker")
 MQTT_PORT = int(os.getenv("MQTT_BROKER_PORT", "1883"))
 TELEMETRY_TOPIC = os.getenv("MQTT_TELEMETRY_TOPIC", "jalrakshak/telemetry")
 ALERTS_TOPIC = os.getenv("MQTT_ALERTS_TOPIC", "jalrakshak/alerts")
+DEVICE_API_KEY = os.getenv("DEVICE_API_KEY", "jal_sec_dev_local_key").strip()
+
+
+def verify_device_key(x_device_key: Optional[str] = Header(None)):
+    """Validates the hardware cryptographic secret header X-Device-Key."""
+    if DEVICE_API_KEY and x_device_key != DEVICE_API_KEY:
+        logger.warning(f"Blocked unauthorized telemetry POST request (Invalid X-Device-Key: '{x_device_key}')")
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized: Missing or invalid X-Device-Key hardware security header.",
+        )
+    return x_device_key
 
 app = FastAPI(
     title="JalRakshak Ingestion & Telemetry API",
@@ -329,9 +341,9 @@ def get_anomaly_events():
         return []
 
 
-@app.post("/telemetry", response_model=TelemetryOut, tags=["Telemetry"])
+@app.post("/telemetry", response_model=TelemetryOut, dependencies=[Depends(verify_device_key)], tags=["Telemetry"])
 def post_telemetry(telemetry: TelemetryIn):
-    """HTTP fallback endpoint to ingest telemetry directly."""
+    """HTTP endpoint to ingest telemetry directly with X-Device-Key security validation."""
     return process_and_enrich_telemetry(telemetry)
 
 
