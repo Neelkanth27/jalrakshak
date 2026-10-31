@@ -1,0 +1,68 @@
+name: JalRakshak CI Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-backend-database:
+    name: Backend API & Database Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Ingestion Dependencies
+        run: |
+          cd services/ingestion-api
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Pytest Suite (WQI Engine & Database Persistence)
+        run: |
+          cd services/ingestion-api
+          PYTHONPATH=. pytest -v
+
+  test-frontend-dashboard:
+    name: Frontend TypeScript & PWA Build Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd services/dashboard-ui
+          npm install
+
+      - name: Run TypeScript Check & Vite Build
+        run: |
+          cd services/dashboard-ui
+          npm run build
+
+  verify-docker-compose:
+    name: Multi-Container Docker Build Check
+    needs: [test-backend-database, test-frontend-dashboard]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Copy Example Environment for Build Test
+        run: cp deploy/.env.example deploy/.env
+
+      - name: Build All Docker Microservices
+        run: docker compose -f deploy/docker-compose.yml build

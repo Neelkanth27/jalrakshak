@@ -1,6 +1,7 @@
 """JalRakshak Core Ingestion & Telemetry Microservice.
 
 FastAPI application providing:
+- PostgreSQL persistence (compatible with Vercel Postgres & Docker)
 - MQTT background listener for ESP32 telemetry
 - Real-time WebSocket broadcasting to web dashboard clients
 - REST APIs for metrics, status, and historical data
@@ -20,6 +21,12 @@ import paho.mqtt.client as mqtt
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.database import (
+    AnomalyEventRecord,
+    SessionLocal,
+    TelemetryRecord,
+    init_db,
+)
 from app.schemas import AlertEvent, SystemState, TelemetryIn, TelemetryOut
 from app.wqi_engine import calculate_wqi, diagnose_contaminant_signature
 
@@ -35,7 +42,7 @@ ALERTS_TOPIC = os.getenv("MQTT_ALERTS_TOPIC", "jalrakshak/alerts")
 app = FastAPI(
     title="JalRakshak Ingestion & Telemetry API",
     version="1.0.0",
-    description="Real-time telemetry ingestion, WQI scoring, and anomaly event pipeline for JalRakshak.",
+    description="Real-time telemetry ingestion, PostgreSQL persistence, WQI scoring, and anomaly event pipeline for JalRakshak.",
 )
 
 # Enable CORS for frontend dashboard
@@ -47,7 +54,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory ring buffer for live streaming and historical plots (last 200 samples)
+# In-memory ring buffer fallback
 telemetry_history: Deque[TelemetryOut] = deque(maxlen=200)
 latest_telemetry: Optional[TelemetryOut] = None
 previous_system_state: SystemState = SystemState.NORMAL
@@ -90,7 +97,7 @@ class ConnectionManager:
 
 
 def process_and_enrich_telemetry(raw: TelemetryIn) -> TelemetryOut:
-    """Enriches raw sensor readings with WQI and diagnostic fingerprint."""
+    """Enriches raw sensor readings with WQI, saves to PostgreSQL, and broadcasts."""
     global latest_telemetry, previous_system_state
 
     wqi, grade = calculate_wqi(raw.anomaly_score)
@@ -107,31 +114,69 @@ def process_and_enrich_telemetry(raw: TelemetryIn) -> TelemetryOut:
     latest_telemetry = enriched
     telemetry_history.append(enriched)
 
-    # Check for state transition to trigger alert notification
-    if raw.state != previous_system_state:
-        logger.warning(
-            f"SYSTEM STATE TRANSITION DETECTED: {previous_system_state.value} -> {raw.state.value}"
+    # 1. Persist to PostgreSQL / Database Layer
+    try:
+        db = SessionLocal()
+        record = TelemetryRecord(
+            device_id=enriched.device_id,
+            timestamp=enriched.received_at,
+            turbidity_ntu=enriched.turbidity_ntu,
+            tds_ppm=enriched.tds_ppm,
+            temp_c=enriched.temp_c,
+            z_turb=enriched.z_turb,
+            z_tds=enriched.z_tds,
+            z_temp=enriched.z_temp,
+            anomaly_score=enriched.anomaly_score,
+            state=enriched.state.value,
+            wqi=enriched.wqi,
+            wqi_grade=enriched.wqi_grade,
+            contaminant_signature=enriched.contaminant_signature,
         )
-        alert = AlertEvent(
-            event_id=str(uuid.uuid4()),
-            timestamp=datetime.utcnow(),
-            device_id=raw.device_id,
-            previous_state=previous_system_state,
-            current_state=raw.state,
-            anomaly_score=raw.anomaly_score,
-            wqi=wqi,
-            contaminant_signature=signature,
-            turbidity_ntu=raw.turbidity_ntu,
-            tds_ppm=raw.tds_ppm,
-            temp_c=raw.temp_c,
-        )
-        previous_system_state = raw.state
+        db.add(record)
 
-        # Publish alert to MQTT for alert worker
-        if mqtt_client and mqtt_client.is_connected():
-            mqtt_client.publish(ALERTS_TOPIC, alert.model_dump_json())
+        # Check for state transition to trigger alert notification and audit event
+        if raw.state != previous_system_state:
+            logger.warning(
+                f"SYSTEM STATE TRANSITION DETECTED: {previous_system_state.value} -> {raw.state.value}"
+            )
+            event_id = str(uuid.uuid4())
+            event_rec = AnomalyEventRecord(
+                id=event_id,
+                timestamp=datetime.utcnow(),
+                device_id=raw.device_id,
+                previous_state=previous_system_state.value,
+                current_state=raw.state.value,
+                anomaly_score=raw.anomaly_score,
+                wqi=wqi,
+                contaminant_signature=signature,
+            )
+            db.add(event_rec)
 
-    # Broadcast to connected UI dashboards
+            alert = AlertEvent(
+                event_id=event_id,
+                timestamp=datetime.utcnow(),
+                device_id=raw.device_id,
+                previous_state=previous_system_state,
+                current_state=raw.state,
+                anomaly_score=raw.anomaly_score,
+                wqi=wqi,
+                contaminant_signature=signature,
+                turbidity_ntu=raw.turbidity_ntu,
+                tds_ppm=raw.tds_ppm,
+                temp_c=raw.temp_c,
+            )
+            previous_system_state = raw.state
+
+            # Publish alert to MQTT for alert worker
+            if mqtt_client and mqtt_client.is_connected():
+                mqtt_client.publish(ALERTS_TOPIC, alert.model_dump_json())
+
+        db.commit()
+        db.close()
+    except Exception as db_err:
+        logger.error(f"Database persistence error: {db_err}")
+
+    # 2. Broadcast to connected UI dashboards
     if loop and loop.is_running():
         asyncio.run_coroutine_threadsafe(
             ConnectionManager.broadcast(json.loads(enriched.model_dump_json())),
@@ -165,6 +210,14 @@ def on_mqtt_message(client, userdata, msg):
 async def startup_event():
     global mqtt_client, loop
     loop = asyncio.get_running_loop()
+
+    # Initialize Database Tables
+    try:
+        logger.info("Initializing PostgreSQL / Database schema...")
+        init_db()
+        logger.info("Database schema initialized successfully.")
+    except Exception as db_init_err:
+        logger.error(f"Failed to initialize database tables: {db_init_err}")
 
     # Initialize MQTT client in background thread
     mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="jalrakshak-ingestion-api")
@@ -203,15 +256,77 @@ def healthcheck():
 @app.get("/telemetry/latest", response_model=Optional[TelemetryOut], tags=["Telemetry"])
 def get_latest_telemetry():
     """Returns the most recent real-time sensor reading and computed WQI."""
-    if not latest_telemetry:
-        raise HTTPException(status_code=404, detail="No telemetry received yet from edge node.")
-    return latest_telemetry
+    if latest_telemetry:
+        return latest_telemetry
+
+    try:
+        db = SessionLocal()
+        record = db.query(TelemetryRecord).order_by(TelemetryRecord.id.desc()).first()
+        db.close()
+        if record:
+            return TelemetryOut(
+                device_id=record.device_id,
+                turbidity_ntu=record.turbidity_ntu,
+                tds_ppm=record.tds_ppm,
+                temp_c=record.temp_c,
+                z_turb=record.z_turb,
+                z_tds=record.z_tds,
+                z_temp=record.z_temp,
+                anomaly_score=record.anomaly_score,
+                state=record.state,
+                wqi=record.wqi,
+                wqi_grade=record.wqi_grade,
+                contaminant_signature=record.contaminant_signature,
+                received_at=record.timestamp,
+            )
+    except Exception:
+        pass
+
+    raise HTTPException(status_code=404, detail="No telemetry received yet from edge node.")
 
 
 @app.get("/telemetry/history", response_model=List[TelemetryOut], tags=["Telemetry"])
 def get_telemetry_history():
-    """Returns the rolling history of sensor readings for real-time charts."""
+    """Returns the rolling history of sensor readings from the database."""
+    try:
+        db = SessionLocal()
+        records = db.query(TelemetryRecord).order_by(TelemetryRecord.id.desc()).limit(50).all()
+        db.close()
+        if records:
+            return [
+                TelemetryOut(
+                    device_id=r.device_id,
+                    turbidity_ntu=r.turbidity_ntu,
+                    tds_ppm=r.tds_ppm,
+                    temp_c=r.temp_c,
+                    z_turb=r.z_turb,
+                    z_tds=r.z_tds,
+                    z_temp=r.z_temp,
+                    anomaly_score=r.anomaly_score,
+                    state=r.state,
+                    wqi=r.wqi,
+                    wqi_grade=r.wqi_grade,
+                    contaminant_signature=r.contaminant_signature,
+                    received_at=r.timestamp,
+                )
+                for r in reversed(records)
+            ]
+    except Exception as e:
+        logger.warning(f"Database query fallback to in-memory deque: {e}")
+
     return list(telemetry_history)
+
+
+@app.get("/events", tags=["Audit Log"])
+def get_anomaly_events():
+    """Returns the historical audit trail of water anomaly transitions."""
+    try:
+        db = SessionLocal()
+        events = db.query(AnomalyEventRecord).order_by(AnomalyEventRecord.timestamp.desc()).limit(20).all()
+        db.close()
+        return events
+    except Exception as e:
+        return []
 
 
 @app.post("/telemetry", response_model=TelemetryOut, tags=["Telemetry"])
