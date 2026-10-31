@@ -22,6 +22,7 @@ services:
       - MQTT_BROKER_PORT=1883
       - MQTT_TELEMETRY_TOPIC=${MQTT_TELEMETRY_TOPIC:-jalrakshak/telemetry}
       - MQTT_ALERTS_TOPIC=${MQTT_ALERTS_TOPIC:-jalrakshak/alerts}
+      - APP_TIMEZONE=${APP_TIMEZONE:-Asia/Kolkata}
     depends_on:
       - mqtt-broker
 
@@ -37,5 +38,17 @@ services:
       - MQTT_ALERTS_TOPIC=${MQTT_ALERTS_TOPIC:-jalrakshak/alerts}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - APP_TIMEZONE=${APP_TIMEZONE:-Asia/Kolkata}
     depends_on:
       - mqtt-broker
+
+  dashboard-ui:
+    build:
+      context: ../services/dashboard-ui
+      dockerfile: Dockerfile
+    container_name: jalrakshak-dashboard-ui
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:80"
+    depends_on:
+      - ingestion-api

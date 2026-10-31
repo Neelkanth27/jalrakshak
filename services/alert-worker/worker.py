@@ -9,6 +9,7 @@ import logging
 import os
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import httpx
 import paho.mqtt.client as mqtt
 
@@ -21,11 +22,21 @@ ALERTS_TOPIC = os.getenv("MQTT_ALERTS_TOPIC", "jalrakshak/alerts")
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Kolkata").strip()
 
 # Minimum cooldown seconds between repeat alerts of the same state
 ALERT_COOLDOWN_SECONDS = 10
 last_alert_time = 0.0
 last_state_alerted = None
+
+
+def get_local_timestamp() -> str:
+    """Returns human-readable timestamp in the configured regional timezone."""
+    try:
+        tz = ZoneInfo(APP_TIMEZONE)
+        return datetime.now(tz).strftime("%Y-%m-%d %I:%M:%S %p %Z")
+    except Exception:
+        return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def send_telegram_notification(message: str) -> bool:
@@ -65,7 +76,7 @@ def format_alert_message(data: dict) -> str:
     tds = data.get("tds_ppm", 0.0)
     temp = data.get("temp_c", 0.0)
     anomaly_score = data.get("anomaly_score", 0.0)
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = get_local_timestamp()
 
     if state == "NORMAL":
         return (
