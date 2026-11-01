@@ -10,6 +10,7 @@ Features:
 import os
 import json
 import logging
+import urllib.parse
 from datetime import datetime
 from typing import List, Optional
 
@@ -40,12 +41,28 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
 RAW_DB_URL = os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL") or "sqlite:////tmp/jalrakshak_cloud.db"
 
-if RAW_DB_URL.startswith("postgres://"):
-    DATABASE_URL = RAW_DB_URL.replace("postgres://", "postgresql+pg8000://", 1)
-elif RAW_DB_URL.startswith("postgresql://") and "+pg8000" not in RAW_DB_URL and "+psycopg2" not in RAW_DB_URL:
-    DATABASE_URL = RAW_DB_URL.replace("postgresql://", "postgresql+pg8000://", 1)
-else:
-    DATABASE_URL = RAW_DB_URL
+
+def clean_neon_url(raw_url: str) -> str:
+    """Strips unsupported parameters like channel_binding for pg8000 driver."""
+    try:
+        parsed = urllib.parse.urlsplit(raw_url)
+        if parsed.query:
+            query_params = urllib.parse.parse_qsl(parsed.query)
+            filtered = [(k, v) for k, v in query_params if k != "channel_binding"]
+            new_query = urllib.parse.urlencode(filtered)
+            parsed = parsed._replace(query=new_query)
+            raw_url = urllib.parse.urlunsplit(parsed)
+    except Exception as e:
+        logger.warning(f"URL parse warning: {e}")
+
+    if raw_url.startswith("postgres://"):
+        return raw_url.replace("postgres://", "postgresql+pg8000://", 1)
+    elif raw_url.startswith("postgresql://") and "+pg8000" not in raw_url and "+psycopg2" not in raw_url:
+        return raw_url.replace("postgresql://", "postgresql+pg8000://", 1)
+    return raw_url
+
+
+DATABASE_URL = clean_neon_url(RAW_DB_URL)
 
 # SQLAlchemy Setup with resilient fallback
 Base = declarative_base()
