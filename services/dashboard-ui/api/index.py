@@ -9,6 +9,7 @@ Features:
 
 import os
 import json
+import ssl
 import logging
 import urllib.parse
 from datetime import datetime
@@ -41,29 +42,6 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
 RAW_DB_URL = os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL") or "sqlite:////tmp/jalrakshak_cloud.db"
 
-
-def clean_neon_url(raw_url: str) -> str:
-    """Strips unsupported parameters like channel_binding for pg8000 driver."""
-    try:
-        parsed = urllib.parse.urlsplit(raw_url)
-        if parsed.query:
-            query_params = urllib.parse.parse_qsl(parsed.query)
-            filtered = [(k, v) for k, v in query_params if k != "channel_binding"]
-            new_query = urllib.parse.urlencode(filtered)
-            parsed = parsed._replace(query=new_query)
-            raw_url = urllib.parse.urlunsplit(parsed)
-    except Exception as e:
-        logger.warning(f"URL parse warning: {e}")
-
-    if raw_url.startswith("postgres://"):
-        return raw_url.replace("postgres://", "postgresql+pg8000://", 1)
-    elif raw_url.startswith("postgresql://") and "+pg8000" not in raw_url and "+psycopg2" not in raw_url:
-        return raw_url.replace("postgresql://", "postgresql+pg8000://", 1)
-    return raw_url
-
-
-DATABASE_URL = clean_neon_url(RAW_DB_URL)
-
 # SQLAlchemy Setup with resilient fallback
 Base = declarative_base()
 
@@ -94,17 +72,61 @@ class AnomalyEvent(Base):
     diagnostics = Column(Text, nullable=True)
 
 
+ACTIVE_DB_TYPE = "SQLite (/tmp)"
+
+
 def get_engine():
-    try:
-        connect_args = {"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
-        eng = create_engine(DATABASE_URL, connect_args=connect_args)
+    global ACTIVE_DB_TYPE
+
+    if "sqlite" in RAW_DB_URL:
+        ACTIVE_DB_TYPE = "SQLite (/tmp)"
+        eng = create_engine("sqlite:////tmp/jalrakshak_cloud.db", connect_args={"check_same_thread": False})
         Base.metadata.create_all(bind=eng)
         return eng
-    except Exception as e:
-        logger.error(f"Failed to connect to primary DB ({DATABASE_URL}): {e}. Falling back to SQLite.")
-        fallback_eng = create_engine("sqlite:////tmp/jalrakshak_cloud.db", connect_args={"check_same_thread": False})
-        Base.metadata.create_all(bind=fallback_eng)
-        return fallback_eng
+
+    # Strategy 1: Try psycopg2 with sslmode=require and without channel_binding
+    try:
+        parsed = urllib.parse.urlsplit(RAW_DB_URL)
+        q_params = urllib.parse.parse_qsl(parsed.query)
+        filtered_params = [(k, v) for k, v in q_params if k != "channel_binding"]
+        if not any(k == "sslmode" for k, _ in filtered_params):
+            filtered_params.append(("sslmode", "require"))
+        new_query = urllib.parse.urlencode(filtered_params)
+        url_psycopg2 = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, new_query, ""))
+        url_psycopg2 = url_psycopg2.replace("postgres://", "postgresql+psycopg2://", 1)
+        if url_psycopg2.startswith("postgresql://"):
+            url_psycopg2 = url_psycopg2.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+        eng = create_engine(url_psycopg2, pool_pre_ping=True)
+        Base.metadata.create_all(bind=eng)
+        ACTIVE_DB_TYPE = "Neon Postgres (psycopg2)"
+        logger.info(f"Connected to Neon Postgres via psycopg2")
+        return eng
+    except Exception as e1:
+        logger.warning(f"psycopg2 attempt failed: {e1}. Trying pg8000 with clean ssl_context...")
+
+    # Strategy 2: Try pg8000 with standard Python ssl_context (strip all query args like sslmode/channel_binding)
+    try:
+        parsed = urllib.parse.urlsplit(RAW_DB_URL)
+        clean_url = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+        clean_url = clean_url.replace("postgres://", "postgresql+pg8000://", 1)
+        if clean_url.startswith("postgresql://"):
+            clean_url = clean_url.replace("postgresql://", "postgresql+pg8000://", 1)
+
+        ssl_ctx = ssl.create_default_context()
+        eng = create_engine(clean_url, connect_args={"ssl_context": ssl_ctx}, pool_pre_ping=True)
+        Base.metadata.create_all(bind=eng)
+        ACTIVE_DB_TYPE = "Neon Postgres (pg8000)"
+        logger.info(f"Connected to Neon Postgres via pg8000")
+        return eng
+    except Exception as e2:
+        logger.error(f"pg8000 attempt failed: {e2}. Falling back to SQLite.")
+
+    # Strategy 3: Safe local SQLite fallback
+    ACTIVE_DB_TYPE = "SQLite (/tmp fallback)"
+    fallback_eng = create_engine("sqlite:////tmp/jalrakshak_cloud.db", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=fallback_eng)
+    return fallback_eng
 
 
 engine = get_engine()
@@ -270,7 +292,7 @@ def health_check():
     return {
         "status": "online",
         "service": "JalRakshak Cloud Ingestion API",
-        "database": "Neon Postgres" if "postgres" in DATABASE_URL else "SQLite (/tmp)",
+        "database": ACTIVE_DB_TYPE,
         "timestamp": datetime.utcnow().isoformat(),
     }
 
