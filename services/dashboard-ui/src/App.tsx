@@ -38,9 +38,9 @@ export const App: React.FC = () => {
     }
     const apiHost = window.location.hostname || 'localhost';
     const isHttps = window.location.protocol === 'https:';
-    // If on https, avoid mixed content; fallback to relative path if hosted together, or same host
+    // If on https (e.g. Vercel), route directly to serverless /api prefix
     if (isHttps) {
-      return `https://${apiHost}${path}`;
+      return `/api${path}`;
     }
     return `http://${apiHost}:8000${path}`;
   }, []);
@@ -55,14 +55,25 @@ export const App: React.FC = () => {
 
   const fetchHistory = useCallback(() => {
     fetch(getApiUrl('/telemetry/history'))
-      .then((res) => (res.ok ? res.json() : []))
+      .then((res) => {
+        if (res.ok) {
+          setIsConnected(true);
+          return res.json();
+        }
+        throw new Error('Cloud API returned non-200 status');
+      })
       .then((data: TelemetryData[]) => {
         if (data && data.length > 0) {
           setHistory(data);
           setTelemetry(data[data.length - 1]);
         }
       })
-      .catch(() => console.log('Waiting for initial telemetry stream...'));
+      .catch(() => {
+        if (window.location.protocol === 'https:') {
+          setIsConnected(false);
+        }
+        console.log('Waiting for telemetry stream...');
+      });
   }, [getApiUrl]);
 
   // Setup WebSocket connection and initial history fetch
@@ -75,6 +86,11 @@ export const App: React.FC = () => {
     let pollingInterval: ReturnType<typeof setInterval>;
 
     const connectWebSocket = () => {
+      // In cloud HTTPS environments without WebSockets, rely on HTTP polling
+      if (window.location.protocol === 'https:' && !import.meta.env.VITE_WS_URL) {
+        return;
+      }
+
       try {
         ws = new WebSocket(wsUrl);
 
@@ -109,10 +125,10 @@ export const App: React.FC = () => {
 
     connectWebSocket();
 
-    // Fallback periodic poll to ensure live updates even if WebSocket is blocked (e.g. serverless)
+    // Fallback periodic poll to ensure live updates across both HTTP and HTTPS cloud environments
     pollingInterval = setInterval(() => {
       fetchHistory();
-    }, 5000);
+    }, 4000);
 
     return () => {
       clearTimeout(reconnectTimer);
