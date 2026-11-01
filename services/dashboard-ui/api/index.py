@@ -4,7 +4,7 @@ Features:
 - Telemetry Ingestion (POST /api/telemetry) with X-Device-Key security header
 - 0-100 Water Quality Index (WQI) computation & Smart Contaminant Classifier
 - Telemetry History (GET /api/telemetry/history) from Neon Postgres
-- Telegram Alert Dispatcher via HTTP REST (no long-running background worker required)
+- Telegram Alert Dispatcher via HTTP REST
 """
 
 import os
@@ -38,16 +38,16 @@ DEVICE_API_KEY = os.getenv("DEVICE_API_KEY", "jal_sec_dev_local_key").strip()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
-RAW_DB_URL = os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL") or "sqlite:///./jalrakshak_cloud.db"
+RAW_DB_URL = os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL") or "sqlite:////tmp/jalrakshak_cloud.db"
+
 if RAW_DB_URL.startswith("postgres://"):
-    DATABASE_URL = RAW_DB_URL.replace("postgres://", "postgresql://", 1)
+    DATABASE_URL = RAW_DB_URL.replace("postgres://", "postgresql+pg8000://", 1)
+elif RAW_DB_URL.startswith("postgresql://") and "+pg8000" not in RAW_DB_URL and "+psycopg2" not in RAW_DB_URL:
+    DATABASE_URL = RAW_DB_URL.replace("postgresql://", "postgresql+pg8000://", 1)
 else:
     DATABASE_URL = RAW_DB_URL
 
-# SQLAlchemy Setup
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# SQLAlchemy Setup with resilient fallback
 Base = declarative_base()
 
 
@@ -77,8 +77,21 @@ class AnomalyEvent(Base):
     diagnostics = Column(Text, nullable=True)
 
 
-# Auto-create tables on import
-Base.metadata.create_all(bind=engine)
+def get_engine():
+    try:
+        connect_args = {"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
+        eng = create_engine(DATABASE_URL, connect_args=connect_args)
+        Base.metadata.create_all(bind=eng)
+        return eng
+    except Exception as e:
+        logger.error(f"Failed to connect to primary DB ({DATABASE_URL}): {e}. Falling back to SQLite.")
+        fallback_eng = create_engine("sqlite:////tmp/jalrakshak_cloud.db", connect_args={"check_same_thread": False})
+        Base.metadata.create_all(bind=fallback_eng)
+        return fallback_eng
+
+
+engine = get_engine()
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 # Pydantic Schemas
@@ -106,10 +119,6 @@ class TelemetryOut(BaseModel):
 
 # Smart WQI & Contaminant Classification Logic
 def calculate_wqi_and_signature(turbidity: float, tds: float, temp: float):
-    """Computes composite 0-100 WQI and classifies contaminant signature."""
-    # Quiescent baseline expectations
-    # Turbidity nominal: ~2.0 NTU, limit: 15.0 NTU
-    # TDS nominal: ~150 ppm, limit: 500 ppm
     turb_score = max(0.0, (turbidity - 2.0) / 13.0)
     tds_score = max(0.0, (tds - 150.0) / 350.0)
     
@@ -143,7 +152,6 @@ def calculate_wqi_and_signature(turbidity: float, tds: float, temp: float):
 
 # Telegram Dispatch Helper
 def dispatch_telegram_alert(out: TelemetryOut):
-    """Sends a rich instant Telegram alert if bot credentials are configured."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
 
@@ -198,7 +206,7 @@ def health_check():
     return {
         "status": "online",
         "service": "JalRakshak Cloud Ingestion API",
-        "database": "Neon Postgres" if "postgres" in DATABASE_URL else "SQLite",
+        "database": "Neon Postgres" if "postgres" in DATABASE_URL else "SQLite (/tmp)",
         "timestamp": datetime.utcnow().isoformat(),
     }
 
@@ -247,7 +255,6 @@ def get_telemetry_history(limit: int = 50):
             .all()
         )
         if not records:
-            # Return baseline if no records in DB yet
             return [
                 TelemetryOut(
                     timestamp=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
@@ -260,7 +267,6 @@ def get_telemetry_history(limit: int = 50):
                     contaminant_signature="Baseline / Quiescent Nominal",
                 )
             ]
-        # Return in ascending order for trend graph plotting
         ordered = list(reversed(records))
         return [
             TelemetryOut(
