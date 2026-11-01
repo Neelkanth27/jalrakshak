@@ -26,8 +26,9 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({ history }) => {
   const y0 = paddingTop + plotHeight;
 
   const points = displayHistory.slice(-25).map((item, index, arr) => {
-    const x = paddingLeft + (index / (arr.length - 1)) * plotWidth;
-    const y = paddingTop + (1 - item.wqi / 100) * plotHeight;
+    const x = paddingLeft + (arr.length > 1 ? (index / (arr.length - 1)) * plotWidth : 0);
+    const wqi = typeof item.wqi === 'number' ? item.wqi : 95;
+    const y = paddingTop + (1 - wqi / 100) * plotHeight;
     return `${x},${y}`;
   });
 

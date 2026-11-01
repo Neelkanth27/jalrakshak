@@ -35,7 +35,7 @@ export const WqiGauge: React.FC<WqiGaugeProps> = ({ wqi, grade, anomalyScore }) 
           <Droplets className="h-4 w-4 text-cyan-400" />
           <h2 className="text-sm font-semibold tracking-wide uppercase text-gray-400">Water Quality Index (WQI)</h2>
         </div>
-        <span className="text-xs font-mono text-gray-500">S_comp: {anomalyScore.toFixed(2)}</span>
+        <span className="text-xs font-mono text-gray-500">S_comp: {(anomalyScore ?? 0).toFixed(2)}</span>
       </div>
 
       {/* Circular Radial Gauge */}

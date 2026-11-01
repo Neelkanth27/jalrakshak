@@ -25,6 +25,48 @@ const INITIAL_TELEMETRY: TelemetryData = {
   received_at: new Date().toISOString(),
 };
 
+// Defensive normalizer to guarantee zero runtime crashes from partial API payloads
+const normalizeTelemetry = (raw: any): TelemetryData => {
+  if (!raw) return INITIAL_TELEMETRY;
+  const turb = typeof raw.turbidity_ntu === 'number' ? raw.turbidity_ntu : 2.0;
+  const tds = typeof raw.tds_ppm === 'number' ? raw.tds_ppm : 150.0;
+  const temp = typeof raw.temp_c === 'number' ? raw.temp_c : 25.0;
+  const wqi = typeof raw.wqi === 'number' ? raw.wqi : 95.0;
+
+  let state = raw.state || 'NORMAL';
+  if (state === 'ALARM') state = 'HIGH ANOMALY';
+
+  let wqi_grade = raw.wqi_grade;
+  if (!wqi_grade) {
+    if (wqi >= 90) wqi_grade = 'Grade A (Pristine Baseline)';
+    else if (wqi >= 75) wqi_grade = 'Grade B (Nominal Quiescent)';
+    else if (wqi >= 50) wqi_grade = 'Grade C (Caution / Degrading)';
+    else wqi_grade = 'Grade D (Critical Anomaly)';
+  }
+
+  // Derive Z-scores if not explicitly provided
+  const z_turb = typeof raw.z_turb === 'number' ? raw.z_turb : Math.max(0, (turb - 2.0) / 3.0);
+  const z_tds = typeof raw.z_tds === 'number' ? raw.z_tds : Math.max(0, (tds - 150.0) / 50.0);
+  const z_temp = typeof raw.z_temp === 'number' ? raw.z_temp : Math.max(0, (temp - 25.0) / 2.0);
+  const anomaly_score = typeof raw.anomaly_score === 'number' ? raw.anomaly_score : Math.sqrt(z_turb**2 + z_tds**2);
+
+  return {
+    turbidity_ntu: turb,
+    tds_ppm: tds,
+    temp_c: temp,
+    z_turb: Number(z_turb.toFixed(2)),
+    z_tds: Number(z_tds.toFixed(2)),
+    z_temp: Number(z_temp.toFixed(2)),
+    anomaly_score: Number(anomaly_score.toFixed(2)),
+    state: state as any,
+    device_id: raw.device_id || 'ESP32_JALRAKSHAK_01',
+    wqi: Number(wqi.toFixed(1)),
+    wqi_grade: wqi_grade,
+    contaminant_signature: raw.contaminant_signature || 'Baseline Stable: Water parameters within nominal bounds.',
+    received_at: raw.received_at || raw.timestamp || new Date().toISOString(),
+  };
+};
+
 export const App: React.FC = () => {
   const [telemetry, setTelemetry] = useState<TelemetryData>(INITIAL_TELEMETRY);
   const [history, setHistory] = useState<TelemetryData[]>([INITIAL_TELEMETRY]);
@@ -62,10 +104,11 @@ export const App: React.FC = () => {
         }
         throw new Error('Cloud API returned non-200 status');
       })
-      .then((data: TelemetryData[]) => {
+      .then((data: any[]) => {
         if (data && data.length > 0) {
-          setHistory(data);
-          setTelemetry(data[data.length - 1]);
+          const normalized = data.map(normalizeTelemetry);
+          setHistory(normalized);
+          setTelemetry(normalized[normalized.length - 1]);
         }
       })
       .catch(() => {
@@ -101,7 +144,8 @@ export const App: React.FC = () => {
 
         ws.onmessage = (event) => {
           try {
-            const freshData: TelemetryData = JSON.parse(event.data);
+            const raw = JSON.parse(event.data);
+            const freshData: TelemetryData = normalizeTelemetry(raw);
             setTelemetry(freshData);
             setHistory((prev: TelemetryData[]) => [...prev.slice(-49), freshData]);
           } catch (e) {

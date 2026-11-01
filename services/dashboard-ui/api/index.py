@@ -105,16 +105,63 @@ class TelemetryIn(BaseModel):
 
 class TelemetryOut(BaseModel):
     timestamp: str
+    received_at: str
     device_id: str
     turbidity_ntu: float
     tds_ppm: float
     temp_c: float
     wqi: float
+    wqi_grade: str
+    anomaly_score: float
+    z_turb: float
+    z_tds: float
+    z_temp: float
     state: str
     contaminant_signature: str
 
     class Config:
         from_attributes = True
+
+
+def make_telemetry_out(r: TelemetryRecord) -> TelemetryOut:
+    turb = r.turbidity_ntu
+    tds = r.tds_ppm
+    temp = r.temp_c
+    wqi = r.wqi
+
+    z_turb = max(0.0, round((turb - 2.0) / 3.0, 2))
+    z_tds = max(0.0, round((tds - 150.0) / 50.0, 2))
+    z_temp = max(0.0, round(abs(temp - 25.0) / 2.0, 2))
+    anomaly_score = round((z_turb**2 + z_tds**2)**0.5, 2)
+
+    if wqi >= 90.0:
+        wqi_grade = "Grade A (Pristine Baseline)"
+    elif wqi >= 75.0:
+        wqi_grade = "Grade B (Nominal Quiescent)"
+    elif wqi >= 50.0:
+        wqi_grade = "Grade C (Caution / Degrading)"
+    else:
+        wqi_grade = "Grade D (Critical Anomaly)"
+
+    state = "HIGH ANOMALY" if r.state in ["ALARM", "HIGH ANOMALY"] else r.state
+    ts = r.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+
+    return TelemetryOut(
+        timestamp=ts,
+        received_at=ts,
+        device_id=r.device_id,
+        turbidity_ntu=turb,
+        tds_ppm=tds,
+        temp_c=temp,
+        wqi=wqi,
+        wqi_grade=wqi_grade,
+        anomaly_score=anomaly_score,
+        z_turb=z_turb,
+        z_tds=z_tds,
+        z_temp=z_temp,
+        state=state,
+        contaminant_signature=r.contaminant_signature or "Baseline / Quiescent Nominal",
+    )
 
 
 # Smart WQI & Contaminant Classification Logic
@@ -218,19 +265,10 @@ def get_latest_telemetry():
     try:
         latest = db.query(TelemetryRecord).order_by(desc(TelemetryRecord.timestamp)).first()
         if latest:
-            return TelemetryOut(
-                timestamp=latest.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                device_id=latest.device_id,
-                turbidity_ntu=latest.turbidity_ntu,
-                tds_ppm=latest.tds_ppm,
-                temp_c=latest.temp_c,
-                wqi=latest.wqi,
-                state=latest.state,
-                contaminant_signature=latest.contaminant_signature or "Baseline / Quiescent Nominal",
-            )
+            return make_telemetry_out(latest)
         # Default baseline if DB is empty
-        return TelemetryOut(
-            timestamp=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+        dummy = TelemetryRecord(
+            timestamp=datetime.utcnow(),
             device_id="ESP32_JALRAKSHAK_01",
             turbidity_ntu=2.1,
             tds_ppm=142.0,
@@ -239,6 +277,7 @@ def get_latest_telemetry():
             state="NORMAL",
             contaminant_signature="Baseline / Quiescent Nominal",
         )
+        return make_telemetry_out(dummy)
     finally:
         db.close()
 
@@ -255,32 +294,19 @@ def get_telemetry_history(limit: int = 50):
             .all()
         )
         if not records:
-            return [
-                TelemetryOut(
-                    timestamp=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-                    device_id="ESP32_JALRAKSHAK_01",
-                    turbidity_ntu=2.1,
-                    tds_ppm=142.0,
-                    temp_c=24.5,
-                    wqi=96.4,
-                    state="NORMAL",
-                    contaminant_signature="Baseline / Quiescent Nominal",
-                )
-            ]
-        ordered = list(reversed(records))
-        return [
-            TelemetryOut(
-                timestamp=r.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                device_id=r.device_id,
-                turbidity_ntu=r.turbidity_ntu,
-                tds_ppm=r.tds_ppm,
-                temp_c=r.temp_c,
-                wqi=r.wqi,
-                state=r.state,
-                contaminant_signature=r.contaminant_signature or "Baseline / Quiescent Nominal",
+            dummy = TelemetryRecord(
+                timestamp=datetime.utcnow(),
+                device_id="ESP32_JALRAKSHAK_01",
+                turbidity_ntu=2.1,
+                tds_ppm=142.0,
+                temp_c=24.5,
+                wqi=96.4,
+                state="NORMAL",
+                contaminant_signature="Baseline / Quiescent Nominal",
             )
-            for r in ordered
-        ]
+            return [make_telemetry_out(dummy)]
+        ordered = list(reversed(records))
+        return [make_telemetry_out(r) for r in ordered]
     finally:
         db.close()
 
@@ -316,19 +342,16 @@ def ingest_telemetry(data: TelemetryIn):
             )
             db.add(event)
         db.commit()
+        db.refresh(record)
     finally:
         db.close()
 
-    result = TelemetryOut(
-        timestamp=now.strftime("%Y-%m-%d %H:%M:%S"),
-        device_id=data.device_id,
-        turbidity_ntu=data.turbidity_ntu,
-        tds_ppm=data.tds_ppm,
-        temp_c=data.temp_c,
-        wqi=wqi,
-        state=state,
-        contaminant_signature=signature,
-    )
+    result = make_telemetry_out(record)
+
+    if state in ["WARNING", "ALARM"]:
+        dispatch_telegram_alert(result)
+
+    return result
 
     if state in ["WARNING", "ALARM"]:
         dispatch_telegram_alert(result)

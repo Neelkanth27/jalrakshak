@@ -19,7 +19,7 @@ export const MetricCards: React.FC<MetricCardsProps> = ({ telemetry }) => {
             <span className="text-xs font-semibold uppercase tracking-wider">Turbidity (Clarity)</span>
           </div>
           <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-900 border border-gray-800 text-gray-400">
-            Z: {telemetry.z_turb.toFixed(2)}
+            Z: {(telemetry.z_turb ?? 0).toFixed(2)}
           </span>
         </div>
 
@@ -48,7 +48,7 @@ export const MetricCards: React.FC<MetricCardsProps> = ({ telemetry }) => {
             <span className="text-xs font-semibold uppercase tracking-wider">TDS / Minerals (EC25)</span>
           </div>
           <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-900 border border-gray-800 text-gray-400">
-            Z: {telemetry.z_tds.toFixed(2)}
+            Z: {(telemetry.z_tds ?? 0).toFixed(2)}
           </span>
         </div>
 
@@ -77,7 +77,7 @@ export const MetricCards: React.FC<MetricCardsProps> = ({ telemetry }) => {
             <span className="text-xs font-semibold uppercase tracking-wider">Water Temperature</span>
           </div>
           <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-900 border border-gray-800 text-gray-400">
-            Z: {telemetry.z_temp.toFixed(2)}
+            Z: {(telemetry.z_temp ?? 0).toFixed(2)}
           </span>
         </div>
 

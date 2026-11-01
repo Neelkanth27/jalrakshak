@@ -27,6 +27,7 @@ export const DiagnosisBanner: React.FC<DiagnosisBannerProps> = ({ signature, sta
           title: 'Anomaly Pattern Identified',
         };
       case 'HIGH ANOMALY':
+      case 'ALARM' as any:
         return {
           border: 'border-rose-500/50',
           bg: 'bg-rose-950/30',
@@ -41,6 +42,14 @@ export const DiagnosisBanner: React.FC<DiagnosisBannerProps> = ({ signature, sta
           icon: Wrench,
           iconColor: 'text-purple-400',
           title: 'Physical Instrumentation Fault',
+        };
+      default:
+        return {
+          border: 'border-emerald-500/30',
+          bg: 'bg-emerald-950/20',
+          icon: ShieldCheck,
+          iconColor: 'text-emerald-400',
+          title: 'Nominal Quiescent Baseline',
         };
     }
   };

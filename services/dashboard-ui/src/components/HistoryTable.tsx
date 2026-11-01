@@ -11,12 +11,14 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({ history, onRefresh }
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
-  // Filter records
+  // Filter records with defensive null-checks
   const filteredRecords = [...history].reverse().filter((record) => {
-    const matchesSearch =
-      record.contaminant_signature.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      record.wqi_grade.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      record.state.toLowerCase().includes(searchTerm.toLowerCase());
+    const sig = (record.contaminant_signature || '').toLowerCase();
+    const grade = (record.wqi_grade || '').toLowerCase();
+    const st = (record.state || '').toLowerCase();
+    const q = searchTerm.toLowerCase();
+
+    const matchesSearch = sig.includes(q) || grade.includes(q) || st.includes(q);
 
     const matchesStatus =
       statusFilter === 'ALL' ||
