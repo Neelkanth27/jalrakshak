@@ -356,74 +356,45 @@ void setup() {
 
     uint8_t targetAddr = (detectedAddr != 0) ? detectedAddr : 0x3C;
 
-    // Send universal direct hardware wake-up sequence (energizes both SH1106 and SSD1306 DC-DC converters)
-    Serial.printf("[OLED] Sending universal hardware wake-up sequence to 0x%02X...\n", targetAddr);
-    Wire.beginTransmission(targetAddr);
-    Wire.write(0x00); // Command mode stream
-    Wire.write(0xAE); // Display OFF
-    Wire.write(0xD5); Wire.write(0x80); // Clock div
-    Wire.write(0xA8); Wire.write(0x3F); // MUX 64
-    Wire.write(0xD3); Wire.write(0x00); // Offset 0
-    Wire.write(0x40); // Start line 0
-    Wire.write(0x8D); Wire.write(0x14); // SSD1306 Charge Pump ON
-    Wire.write(0xAD); Wire.write(0x8B); // SH1106 DC-DC Converter ON
-    Wire.write(0xA1); // Segment remap
-    Wire.write(0xC8); // COM scan dec
-    Wire.write(0xDA); Wire.write(0x12); // COM pins
-    Wire.write(0x81); Wire.write(0xCF); // Contrast max
-    Wire.write(0xD9); Wire.write(0xF1); // Precharge
-    Wire.write(0xDB); Wire.write(0x40); // VCOMH
-    Wire.write(0xA6); // Normal display
-    Wire.write(0xAF); // Display ON
-    byte wakeErr = Wire.endTransmission();
-    Serial.printf("[OLED] Wake-up transmission result: %d (0=ACK/Success, 2=Addr NACK, 3=Data NACK, 5=Timeout)\n", wakeErr);
-    delay(50);
-
-    // Hardware verification flash (illuminates all pixels for 300ms so user sees hardware response)
-    Wire.beginTransmission(targetAddr);
-    Wire.write(0x00);
-    Wire.write(0xA5); // Entire display ON
-    byte flashErr = Wire.endTransmission();
-    Serial.printf("[OLED] Flash test transmission result: %d\n", flashErr);
-    delay(300);
-    Wire.beginTransmission(targetAddr);
-    Wire.write(0x00);
-    Wire.write(0xA4); // Resume normal RAM display
-    Wire.endTransmission();
-    delay(50);
-
-    // 1. Initialize native SH1106 driver (Native controller for 1.3" M-130-12864 display)
-    Serial.printf("[OLED] Initializing SH1106 driver at address 0x%02X...\n", targetAddr);
-    if (displaySH.begin(targetAddr, false)) {
+    // Test 1: Native SH1106 Driver (Official driver for 1.3" M130-12864-4G)
+    Serial.printf("[OLED] Testing SH1106 driver at address 0x%02X...\n", targetAddr);
+    if (displaySH.begin(targetAddr, true)) {
         oledIsSH = true;
         oledIsSSD = false;
-        Serial.printf("[OLED] >>> SUCCESS: Initialized native SH1106 driver at address 0x%02X! <<<\n", targetAddr);
+        Serial.printf("[OLED] >>> SUCCESS: Initialized native SH1106 driver at 0x%02X! <<<\n", targetAddr);
         displaySH.clearDisplay();
+        displaySH.drawRect(0, 0, 128, 64, SH110X_WHITE);
         displaySH.setTextSize(1);
         displaySH.setTextColor(SH110X_WHITE);
-        displaySH.setCursor(10, 15);
-        displaySH.println("JALRAKSHAK SYSTEM");
-        displaySH.setCursor(10, 30);
-        displaySH.println("1.3\" OLED Online!");
-        displaySH.setCursor(10, 45);
-        displaySH.println("Connecting Wi-Fi...");
+        displaySH.setCursor(15, 20);
+        displaySH.println("JALRAKSHAK");
+        displaySH.setCursor(15, 35);
+        displaySH.println("1.3\" OLED READY");
         displaySH.display();
     } else {
-        Serial.println("[OLED] SH1106 library did not bind, trying SSD1306 fallback...");
-        if (displaySSD.begin(SSD1306_SWITCHCAPVCC, targetAddr, false, false)) {
+        Serial.println("[OLED] SH1106 did not start. Resetting I2C bus and trying SSD1306 fallback...");
+        Wire.end();
+        delay(50);
+        Wire.setPins(OLED_SDA, OLED_SCL);
+        Wire.begin(OLED_SDA, OLED_SCL);
+        Wire.setClock(100000);
+        delay(50);
+
+        if (displaySSD.begin(SSD1306_SWITCHCAPVCC, targetAddr, true, false)) {
             oledIsSSD = true;
             oledIsSH = false;
-            Serial.printf("[OLED] >>> SSD1306 fallback driver active at address 0x%02X! <<<\n", targetAddr);
+            Serial.printf("[OLED] >>> SUCCESS: SSD1306 driver active at 0x%02X! <<<\n", targetAddr);
             displaySSD.clearDisplay();
+            displaySSD.drawRect(0, 0, 128, 64, SSD1306_WHITE);
             displaySSD.setTextSize(1);
             displaySSD.setTextColor(SSD1306_WHITE);
-            displaySSD.setCursor(10, 15);
-            displaySSD.println("JALRAKSHAK SYSTEM");
-            displaySSD.setCursor(10, 30);
-            displaySSD.println("SSD1306 Online!");
-            displaySSD.setCursor(10, 45);
-            displaySSD.println("Connecting Wi-Fi...");
+            displaySSD.setCursor(15, 20);
+            displaySSD.println("JALRAKSHAK");
+            displaySSD.setCursor(15, 35);
+            displaySSD.println("SSD1306 READY");
             displaySSD.display();
+        } else {
+            Serial.println("[OLED] Both SH1106 and SSD1306 drivers failed to initialize.");
         }
     }
 
