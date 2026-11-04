@@ -64,6 +64,7 @@ const normalizeTelemetry = (raw: any): TelemetryData => {
     wqi_grade: wqi_grade,
     contaminant_signature: raw.contaminant_signature || 'Baseline Stable: Water parameters within nominal bounds.',
     received_at: raw.received_at || raw.timestamp || new Date().toISOString(),
+    alarm_acknowledged: Boolean(raw.alarm_acknowledged),
   };
 };
 
@@ -72,6 +73,7 @@ export const App: React.FC = () => {
   const [history, setHistory] = useState<TelemetryData[]>([INITIAL_TELEMETRY]);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isTelegramModalOpen, setIsTelegramModalOpen] = useState<boolean>(false);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
 
   const getApiUrl = useCallback((path: string) => {
     const customApi = import.meta.env.VITE_API_URL;
@@ -86,6 +88,18 @@ export const App: React.FC = () => {
     }
     return `http://${apiHost}:8000${path}`;
   }, []);
+
+  const handleAcknowledgeAlarm = useCallback(() => {
+    setIsMuted(true);
+    fetch(getApiUrl('/telemetry/acknowledge'), { method: 'POST' })
+      .then((res) => res.json())
+      .then((data) => {
+        console.log('Alarm acknowledged successfully:', data);
+      })
+      .catch((err) => {
+        console.error('Failed to acknowledge alarm:', err);
+      });
+  }, [getApiUrl]);
 
   const getWsUrl = useCallback(() => {
     const customWs = import.meta.env.VITE_WS_URL;
@@ -193,8 +207,13 @@ export const App: React.FC = () => {
 
       {/* Main Content Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
-        {/* Top Section: Smart Contaminant Diagnosis Banner */}
-        <DiagnosisBanner signature={telemetry.contaminant_signature} state={telemetry.state} />
+        {/* Top Section: Smart Contaminant Diagnosis Banner with Remote Mute Action */}
+        <DiagnosisBanner
+          signature={telemetry.contaminant_signature}
+          state={telemetry.state}
+          isMuted={isMuted || telemetry.alarm_acknowledged}
+          onAcknowledgeAlarm={handleAcknowledgeAlarm}
+        />
 
         {/* Core Analytics Grid: Circular WQI Gauge + Trend Chart */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

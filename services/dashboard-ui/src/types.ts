@@ -14,4 +14,5 @@ export interface TelemetryData {
   wqi_grade: string;
   contaminant_signature: string;
   received_at: string;
+  alarm_acknowledged?: boolean;
 }

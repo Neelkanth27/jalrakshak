@@ -354,6 +354,22 @@ void postTelemetryToCloud(float turb, float tds, float temp, const String& state
     if (httpCode > 0) {
         syncCounter++;
         Serial.printf("[Cloud Sync #%lu] HTTP %d: Telemetry Persisted in Neon Postgres\n", syncCounter, httpCode);
+
+        // Check response payload for remote cloud commands (e.g. Alarm Acknowledge / Mute from Web UI)
+        if (httpCode == 200) {
+            String resp = http.getString();
+            StaticJsonDocument<512> respDoc;
+            DeserializationError err = deserializeJson(respDoc, resp);
+            if (!err && respDoc.containsKey("alarm_acknowledged")) {
+                bool cloudMuted = respDoc["alarm_acknowledged"];
+                if (cloudMuted && !alarmAcknowledged) {
+                    alarmAcknowledged = true;
+                    Serial.println("[REMOTE CLOUD COMMAND] >>> Operator pressed MUTE on Web/Phone app! Buzzer Silenced. <<<");
+                } else if (!cloudMuted && alarmAcknowledged && state == "NORMAL") {
+                    alarmAcknowledged = false;
+                }
+            }
+        }
     } else {
         Serial.printf("[Cloud Sync] Error sending POST: %s\n", http.errorToString(httpCode).c_str());
     }

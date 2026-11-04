@@ -1,13 +1,17 @@
 import React from 'react';
-import { Microscope, AlertTriangle, ShieldCheck, Flame, Wrench } from 'lucide-react';
+import { Microscope, AlertTriangle, ShieldCheck, Flame, Wrench, VolumeX, CheckCircle } from 'lucide-react';
 import { SystemState } from '../types';
 
 interface DiagnosisBannerProps {
   signature: string;
   state: SystemState;
+  isMuted?: boolean;
+  onAcknowledgeAlarm?: () => void;
 }
 
-export const DiagnosisBanner: React.FC<DiagnosisBannerProps> = ({ signature, state }) => {
+export const DiagnosisBanner: React.FC<DiagnosisBannerProps> = ({ signature, state, isMuted, onAcknowledgeAlarm }) => {
+  const isAlarmOrWarning = state === 'HIGH ANOMALY' || (state as string) === 'ALARM' || state === 'WARNING';
+
   const getBannerStyle = () => {
     switch (state) {
       case 'NORMAL':
@@ -64,14 +68,34 @@ export const DiagnosisBanner: React.FC<DiagnosisBannerProps> = ({ signature, sta
           <Icon className={`h-6 w-6 ${style.iconColor}`} />
         </div>
         <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
-              <Microscope className="h-3.5 w-3.5 text-cyan-400" />
-              Smart Contaminant Diagnosis
-            </span>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <span className="text-xs font-semibold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                <Microscope className="h-3.5 w-3.5 text-cyan-400" />
+                Smart Contaminant Diagnosis
+              </span>
+              <h3 className="text-base font-bold text-white mt-0.5">{signature}</h3>
+            </div>
+            {isAlarmOrWarning && onAcknowledgeAlarm && (
+              <div className="shrink-0">
+                {isMuted ? (
+                  <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-semibold shadow-inner">
+                    <CheckCircle className="h-4 w-4 text-emerald-400" />
+                    Alarm Acknowledged (Buzzer Muted)
+                  </div>
+                ) : (
+                  <button
+                    onClick={onAcknowledgeAlarm}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-950/50 hover:shadow-rose-900/60 transition-all active:scale-95 animate-pulse cursor-pointer border border-rose-400/30"
+                  >
+                    <VolumeX className="h-4 w-4" />
+                    Acknowledge & Mute Buzzer
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          <h3 className="text-base font-bold text-white mt-0.5">{signature}</h3>
-          <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+          <p className="text-xs text-gray-400 mt-2 leading-relaxed">
             Multivariate fingerprint engine continuously cross-references optical turbidity deviations, ionic conductance shifts, and thermal coefficients to differentiate sediment intrusion from chemical/saline ingress.
           </p>
         </div>

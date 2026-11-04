@@ -161,9 +161,13 @@ class TelemetryOut(BaseModel):
     z_temp: float
     state: str
     contaminant_signature: str
+    alarm_acknowledged: bool = False
 
     class Config:
         from_attributes = True
+
+
+_alarm_acknowledged = False
 
 
 def make_telemetry_out(r: TelemetryRecord) -> TelemetryOut:
@@ -204,6 +208,7 @@ def make_telemetry_out(r: TelemetryRecord) -> TelemetryOut:
         z_temp=z_temp,
         state=state,
         contaminant_signature=r.contaminant_signature or "Baseline / Quiescent Nominal",
+        alarm_acknowledged=_alarm_acknowledged,
     )
 
 
@@ -407,7 +412,34 @@ def ingest_telemetry(data: TelemetryIn):
     if state in ["WARNING", "ALARM"]:
         dispatch_telegram_alert(result)
     elif state == "NORMAL":
-        global _last_telegram_alert_state
+        global _last_telegram_alert_state, _alarm_acknowledged
         _last_telegram_alert_state = "NORMAL"
+        _alarm_acknowledged = False
 
     return result
+
+
+@app.post("/api/telemetry/acknowledge")
+@app.post("/telemetry/acknowledge")
+def acknowledge_alarm():
+    global _alarm_acknowledged
+    _alarm_acknowledged = True
+    logger.info("Operator acknowledged alarm via Web UI. Buzzer mute armed for ESP32.")
+    return {
+        "status": "ok",
+        "alarm_acknowledged": True,
+        "message": "Alarm acknowledged. Hardware buzzer will be muted on next sync.",
+    }
+
+
+@app.post("/api/telemetry/reset-alarm")
+@app.post("/telemetry/reset-alarm")
+def reset_alarm_acknowledgment():
+    global _alarm_acknowledged
+    _alarm_acknowledged = False
+    logger.info("Alarm acknowledge state manually reset.")
+    return {
+        "status": "ok",
+        "alarm_acknowledged": False,
+        "message": "Alarm acknowledge state reset.",
+    }
