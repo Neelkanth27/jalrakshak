@@ -300,6 +300,8 @@ void setup() {
 
     tempSensors.begin();
 
+    // Lock I2C pins for ESP32 Arduino Core 3.x so library calls to Wire.begin() do not unbind pins
+    Wire.setPins(OLED_SDA, OLED_SCL);
     Wire.begin(OLED_SDA, OLED_SCL);
     Wire.setClock(100000);  // 100 kHz standard mode for rock-solid breadboard I2C
     delay(50);
@@ -317,6 +319,7 @@ void setup() {
                 detectedAddr = addr;
             }
             foundDevices++;
+            break; // Stop immediately upon finding display to prevent bus stress
         }
     }
 
@@ -325,6 +328,7 @@ void setup() {
         Serial.println("[I2C] No device at 21/22. Testing SWAPPED pins (Attempt 2: SDA=GPIO22, SCL=GPIO21)...");
         Wire.end();
         delay(50);
+        Wire.setPins(22, 21);
         Wire.begin(22, 21);
         Wire.setClock(100000);
         delay(50);
@@ -338,6 +342,7 @@ void setup() {
                     detectedAddr = addr;
                 }
                 foundDevices++;
+                break;
             }
         }
     }
@@ -351,9 +356,43 @@ void setup() {
 
     uint8_t targetAddr = (detectedAddr != 0) ? detectedAddr : 0x3C;
 
-    // 1. Prioritize native SH1106 driver (Native controller for 1.3" M-130-12864 display)
+    // Send universal direct hardware wake-up sequence (energizes both SH1106 and SSD1306 DC-DC converters)
+    Serial.printf("[OLED] Sending universal hardware wake-up sequence to 0x%02X...\n", targetAddr);
+    Wire.beginTransmission(targetAddr);
+    Wire.write(0x00); // Command mode stream
+    Wire.write(0xAE); // Display OFF
+    Wire.write(0xD5); Wire.write(0x80); // Clock div
+    Wire.write(0xA8); Wire.write(0x3F); // MUX 64
+    Wire.write(0xD3); Wire.write(0x00); // Offset 0
+    Wire.write(0x40); // Start line 0
+    Wire.write(0x8D); Wire.write(0x14); // SSD1306 Charge Pump ON
+    Wire.write(0xAD); Wire.write(0x8B); // SH1106 DC-DC Converter ON
+    Wire.write(0xA1); // Segment remap
+    Wire.write(0xC8); // COM scan dec
+    Wire.write(0xDA); Wire.write(0x12); // COM pins
+    Wire.write(0x81); Wire.write(0xCF); // Contrast max
+    Wire.write(0xD9); Wire.write(0xF1); // Precharge
+    Wire.write(0xDB); Wire.write(0x40); // VCOMH
+    Wire.write(0xA6); // Normal display
+    Wire.write(0xAF); // Display ON
+    Wire.endTransmission();
+    delay(50);
+
+    // Hardware verification flash (illuminates all pixels for 300ms so user sees hardware response)
+    Wire.beginTransmission(targetAddr);
+    Wire.write(0x00);
+    Wire.write(0xA5); // Entire display ON
+    Wire.endTransmission();
+    delay(300);
+    Wire.beginTransmission(targetAddr);
+    Wire.write(0x00);
+    Wire.write(0xA4); // Resume normal RAM display
+    Wire.endTransmission();
+    delay(50);
+
+    // 1. Initialize native SH1106 driver (Native controller for 1.3" M-130-12864 display)
     Serial.printf("[OLED] Initializing SH1106 driver at address 0x%02X...\n", targetAddr);
-    if (displaySH.begin(targetAddr, true)) {
+    if (displaySH.begin(targetAddr, false)) {
         oledIsSH = true;
         oledIsSSD = false;
         Serial.printf("[OLED] >>> SUCCESS: Initialized native SH1106 driver at address 0x%02X! <<<\n", targetAddr);
@@ -368,8 +407,8 @@ void setup() {
         displaySH.println("Connecting Wi-Fi...");
         displaySH.display();
     } else {
-        Serial.println("[OLED] SH1106 did not start, trying SSD1306 fallback...");
-        if (displaySSD.begin(SSD1306_SWITCHCAPVCC, targetAddr)) {
+        Serial.println("[OLED] SH1106 library did not bind, trying SSD1306 fallback...");
+        if (displaySSD.begin(SSD1306_SWITCHCAPVCC, targetAddr, false, false)) {
             oledIsSSD = true;
             oledIsSH = false;
             Serial.printf("[OLED] >>> SSD1306 fallback driver active at address 0x%02X! <<<\n", targetAddr);
