@@ -286,7 +286,11 @@ void setup() {
     tempSensors.begin();
 
     Wire.begin(OLED_SDA, OLED_SCL);
-    if (!display.begin(SCREEN_ADDRESS, true)) {
+    bool oledOk = display.begin(0x3C, true);
+    if (!oledOk) {
+        oledOk = display.begin(0x3D, true);
+    }
+    if (!oledOk) {
         Serial.println("[OLED] SH1106 allocation failed. Check I2C wiring (SDA=21, SCL=22).");
     } else {
         display.clearDisplay();
