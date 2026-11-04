@@ -64,7 +64,8 @@ const char* DEVICE_ID      = "ESP32_JALRAKSHAK_01";
 // 3. OBJECT INITIALIZATION & GLOBAL STATE
 // ==========================================
 // Dual-driver OLED instances (Universal support for SH1106 and SSD1306)
-Adafruit_SH1106G displaySH = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+// Set 100 kHz clock speed for rock-solid breadboard I2C signal integrity
+Adafruit_SH1106G displaySH = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1, 100000, 100000);
 Adafruit_SSD1306 displaySSD = Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 bool oledIsSSD = false;
 bool oledIsSH = false;
@@ -350,32 +351,39 @@ void setup() {
 
     uint8_t targetAddr = (detectedAddr != 0) ? detectedAddr : 0x3C;
 
-    // 1. Try initializing SSD1306 (with internal charge pump boosted)
-    if (displaySSD.begin(SSD1306_SWITCHCAPVCC, targetAddr)) {
-        oledIsSSD = true;
-        Serial.printf("[OLED] Initialized SSD1306 driver at address 0x%02X!\n", targetAddr);
-        displaySSD.clearDisplay();
-        displaySSD.setTextSize(1);
-        displaySSD.setTextColor(SSD1306_WHITE);
-        displaySSD.setCursor(10, 20);
-        displaySSD.println("JALRAKSHAK SYSTEM");
-        displaySSD.setCursor(10, 35);
-        displaySSD.println("Connecting Wi-Fi...");
-        displaySSD.display();
-    }
-
-    // 2. Also try initializing SH1106 driver
+    // 1. Prioritize native SH1106 driver (Native controller for 1.3" M-130-12864 display)
+    Serial.printf("[OLED] Initializing SH1106 driver at address 0x%02X...\n", targetAddr);
     if (displaySH.begin(targetAddr, true)) {
         oledIsSH = true;
-        Serial.printf("[OLED] Initialized SH1106 driver at address 0x%02X!\n", targetAddr);
+        oledIsSSD = false;
+        Serial.printf("[OLED] >>> SUCCESS: Initialized native SH1106 driver at address 0x%02X! <<<\n", targetAddr);
         displaySH.clearDisplay();
         displaySH.setTextSize(1);
         displaySH.setTextColor(SH110X_WHITE);
-        displaySH.setCursor(10, 20);
+        displaySH.setCursor(10, 15);
         displaySH.println("JALRAKSHAK SYSTEM");
-        displaySH.setCursor(10, 35);
+        displaySH.setCursor(10, 30);
+        displaySH.println("1.3\" OLED Online!");
+        displaySH.setCursor(10, 45);
         displaySH.println("Connecting Wi-Fi...");
         displaySH.display();
+    } else {
+        Serial.println("[OLED] SH1106 did not start, trying SSD1306 fallback...");
+        if (displaySSD.begin(SSD1306_SWITCHCAPVCC, targetAddr)) {
+            oledIsSSD = true;
+            oledIsSH = false;
+            Serial.printf("[OLED] >>> SSD1306 fallback driver active at address 0x%02X! <<<\n", targetAddr);
+            displaySSD.clearDisplay();
+            displaySSD.setTextSize(1);
+            displaySSD.setTextColor(SSD1306_WHITE);
+            displaySSD.setCursor(10, 15);
+            displaySSD.println("JALRAKSHAK SYSTEM");
+            displaySSD.setCursor(10, 30);
+            displaySSD.println("SSD1306 Online!");
+            displaySSD.setCursor(10, 45);
+            displaySSD.println("Connecting Wi-Fi...");
+            displaySSD.display();
+        }
     }
 
     if (!oledIsSSD && !oledIsSH) {
