@@ -63,12 +63,10 @@ const char* DEVICE_ID      = "ESP32_JALRAKSHAK_01";
 // ==========================================
 // 3. OBJECT INITIALIZATION & GLOBAL STATE
 // ==========================================
-// Dual-driver OLED instances (Universal support for SH1106 and SSD1306)
-// Set 100 kHz clock speed for rock-solid breadboard I2C signal integrity
-Adafruit_SH1106G displaySH = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1, 100000, 100000);
+// Universal OLED Driver state (Native support for 1.3" SH1106 and 0.96" SSD1306)
 Adafruit_SSD1306 displaySSD = Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-bool oledIsSSD = false;
-bool oledIsSH = false;
+uint8_t targetOledAddr = 0x3C;
+bool oledReady = false;
 
 OneWire oneWire(PIN_ONEWIRE);
 DallasTemperature tempSensors(&oneWire);
@@ -184,10 +182,85 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
 
 // ==========================================
 // 6. OLED GRAPHICAL DISPLAY RENDERER
+// (Universal Hardware Driver for SH1106 & SSD1306)
 // ==========================================
+void sendOledCommand(uint8_t addr, uint8_t cmd) {
+    Wire.beginTransmission(addr);
+    Wire.write(0x00); // Co=0, D/C#=0 (Command byte)
+    Wire.write(cmd);
+    Wire.endTransmission();
+}
+
+void initUniversalOled(uint8_t addr) {
+    // 1. Turn display off during setup
+    sendOledCommand(addr, 0xAE); // Display OFF
+
+    // 2. Clock & timing
+    sendOledCommand(addr, 0xD5); // Set Display Clock Divide / Osc Freq
+    sendOledCommand(addr, 0x80); // Suggested ratio 0x80
+
+    // 3. Multiplex ratio
+    sendOledCommand(addr, 0xA8); // Set Multiplex Ratio
+    sendOledCommand(addr, 0x3F); // 64 MUX (1/64 duty)
+
+    // 4. Display offset & start line
+    sendOledCommand(addr, 0xD3); // Set Display Offset
+    sendOledCommand(addr, 0x00); // 0 offset
+    sendOledCommand(addr, 0x40); // Start line 0
+
+    // 5. POWER PUMP: Charge pump for SSD1306 AND DC-DC converter for SH1106
+    // Both commands are sent. The SSD1306 recognizes 0x8D and ignores 0xAD.
+    // The SH1106 recognizes 0xAD and ignores 0x8D.
+    sendOledCommand(addr, 0x8D); // SSD1306 Charge Pump command
+    sendOledCommand(addr, 0x14); // Enable Charge Pump (7.5V boost)
+    sendOledCommand(addr, 0xAD); // SH1106 DC-DC Converter command
+    sendOledCommand(addr, 0x8B); // Enable Built-in DC-DC Converter (0x8B = ON)
+    sendOledCommand(addr, 0x33); // Set VPP to 9V (SH1106)
+
+    // 6. Addressing & orientation
+    sendOledCommand(addr, 0xA1); // Segment re-map (A1 = column 127 mapped to SEG0)
+    sendOledCommand(addr, 0xC8); // COM Output Scan Direction (C8 = remapped mode)
+    sendOledCommand(addr, 0xDA); // COM Pins Hardware Configuration
+    sendOledCommand(addr, 0x12); // Alternative COM pin config
+
+    // 7. Contrast & precharge
+    sendOledCommand(addr, 0x81); // Contrast Control
+    sendOledCommand(addr, 0xFF); // Maximum brightness (0xFF)
+    sendOledCommand(addr, 0xD9); // Set Pre-charge Period
+    sendOledCommand(addr, 0x22); // Precharge period
+    sendOledCommand(addr, 0xDB); // Set VCOMH Deselect Level
+    sendOledCommand(addr, 0x40); // ~0.77 x VCC
+
+    // 8. Normal display & resume from RAM
+    sendOledCommand(addr, 0xA6); // Normal display (0 in RAM = off, 1 in RAM = on)
+    sendOledCommand(addr, 0xA4); // Output follows RAM content
+
+    // 9. Turn display ON!
+    sendOledCommand(addr, 0xAF); // Display ON!
+}
+
+void oledFlush(uint8_t addr, const uint8_t* buf, uint8_t colOffset = 2) {
+    if (!buf) return;
+    for (uint8_t page = 0; page < 8; page++) {
+        sendOledCommand(addr, 0xB0 + page);                      // Set Page Address (0-7)
+        sendOledCommand(addr, 0x00 + (colOffset & 0x0F));        // Lower Column Address
+        sendOledCommand(addr, 0x10 + ((colOffset >> 4) & 0x0F)); // Higher Column Address
+
+        // Stream 128 bytes of pixel data in 16-byte chunks (17 bytes total per transmission)
+        for (uint8_t chunk = 0; chunk < 8; chunk++) {
+            Wire.beginTransmission(addr);
+            Wire.write(0x40); // Data mode (D/C# = 1)
+            for (uint8_t b = 0; b < 16; b++) {
+                Wire.write(buf[page * 128 + chunk * 16 + b]);
+            }
+            Wire.endTransmission();
+        }
+    }
+}
+
 void renderScreen(Adafruit_GFX& disp, float turb, float tds, float temp, const WaterDiagnosis& diag) {
     disp.setTextSize(1);
-    disp.setTextColor(1); // 1 = White in both SSD1306 and SH110X
+    disp.setTextColor(1); // 1 = White
     disp.setCursor(0, 0);
     disp.print("JALRAKSHAK | ");
     disp.print(diag.state);
@@ -220,15 +293,10 @@ void renderScreen(Adafruit_GFX& disp, float turb, float tds, float temp, const W
 }
 
 void updateOledDisplay(float turb, float tds, float temp, const WaterDiagnosis& diag) {
-    if (oledIsSSD) {
+    if (oledReady) {
         displaySSD.clearDisplay();
         renderScreen(displaySSD, turb, tds, temp, diag);
-        displaySSD.display();
-    }
-    if (oledIsSH) {
-        displaySH.clearDisplay();
-        renderScreen(displaySH, turb, tds, temp, diag);
-        displaySH.display();
+        oledFlush(targetOledAddr, displaySSD.getBuffer(), 2);
     }
 }
 
@@ -354,51 +422,38 @@ void setup() {
         Serial.println("[I2C] Fix 3: Check breadboard rows - ensure wires line up with GND, VDD, SCK, SDA.");
     }
 
-    uint8_t targetAddr = (detectedAddr != 0) ? detectedAddr : 0x3C;
+    targetOledAddr = (detectedAddr != 0) ? detectedAddr : 0x3C;
+    Serial.printf("[OLED] Activating Universal Hardware Driver for 1.3\" / 0.96\" OLED at 0x%02X...\n", targetOledAddr);
 
-    // Test 1: Native SH1106 Driver (Official driver for 1.3" M130-12864-4G)
-    Serial.printf("[OLED] Testing SH1106 driver at address 0x%02X...\n", targetAddr);
-    if (displaySH.begin(targetAddr, true)) {
-        oledIsSH = true;
-        oledIsSSD = false;
-        Serial.printf("[OLED] >>> SUCCESS: Initialized native SH1106 driver at 0x%02X! <<<\n", targetAddr);
-        displaySH.clearDisplay();
-        displaySH.drawRect(0, 0, 128, 64, SH110X_WHITE);
-        displaySH.setTextSize(1);
-        displaySH.setTextColor(SH110X_WHITE);
-        displaySH.setCursor(15, 20);
-        displaySH.println("JALRAKSHAK");
-        displaySH.setCursor(15, 35);
-        displaySH.println("1.3\" OLED READY");
-        displaySH.display();
+    // Initialize displaySSD in memory to provide Adafruit GFX text & graphics rendering canvas
+    if (displaySSD.begin(SSD1306_SWITCHCAPVCC, targetOledAddr, false, false)) {
+        oledReady = true;
+
+        // Apply native hardware configuration (energizes both SH1106 DC-DC booster & SSD1306 charge pump)
+        initUniversalOled(targetOledAddr);
+
+        // Hardware test flash: illuminate entire panel for 400ms to visually verify OLED glass & power
+        Serial.println("[OLED] Visual verification flash: Turning entire display solid white for 400ms...");
+        sendOledCommand(targetOledAddr, 0xA5); // All pixels ON
+        delay(400);
+        sendOledCommand(targetOledAddr, 0xA4); // Resume RAM mode
+
+        // Draw boot splash screen on display canvas
+        displaySSD.clearDisplay();
+        displaySSD.drawRect(0, 0, 128, 64, SSD1306_WHITE);
+        displaySSD.setTextSize(1);
+        displaySSD.setTextColor(SSD1306_WHITE);
+        displaySSD.setCursor(15, 18);
+        displaySSD.println("JALRAKSHAK");
+        displaySSD.setCursor(15, 32);
+        displaySSD.println("1.3\" OLED ONLINE");
+        displaySSD.setCursor(15, 46);
+        displaySSD.println("Connecting WiFi...");
+
+        // Push splash frame directly to SH1106/SSD1306 RAM
+        oledFlush(targetOledAddr, displaySSD.getBuffer(), 2);
+        Serial.printf("[OLED] >>> SUCCESS: 1.3\" M130-12864 OLED initialized and rendered at 0x%02X! <<<\n", targetOledAddr);
     } else {
-        Serial.println("[OLED] SH1106 did not start. Resetting I2C bus and trying SSD1306 fallback...");
-        Wire.end();
-        delay(50);
-        Wire.setPins(OLED_SDA, OLED_SCL);
-        Wire.begin(OLED_SDA, OLED_SCL);
-        Wire.setClock(100000);
-        delay(50);
-
-        if (displaySSD.begin(SSD1306_SWITCHCAPVCC, targetAddr, true, false)) {
-            oledIsSSD = true;
-            oledIsSH = false;
-            Serial.printf("[OLED] >>> SUCCESS: SSD1306 driver active at 0x%02X! <<<\n", targetAddr);
-            displaySSD.clearDisplay();
-            displaySSD.drawRect(0, 0, 128, 64, SSD1306_WHITE);
-            displaySSD.setTextSize(1);
-            displaySSD.setTextColor(SSD1306_WHITE);
-            displaySSD.setCursor(15, 20);
-            displaySSD.println("JALRAKSHAK");
-            displaySSD.setCursor(15, 35);
-            displaySSD.println("SSD1306 READY");
-            displaySSD.display();
-        } else {
-            Serial.println("[OLED] Both SH1106 and SSD1306 drivers failed to initialize.");
-        }
-    }
-
-    if (!oledIsSSD && !oledIsSH) {
         Serial.println("[OLED] Initialization failed. Check I2C wiring (SDA=21, SCL=22).");
     }
 
