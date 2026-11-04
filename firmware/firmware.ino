@@ -17,6 +17,19 @@
 #include <ArduinoJson.h>
 
 // ==========================================
+// DATA STRUCTURES & FORWARD DECLARATIONS
+// (Must be at the top for Arduino IDE compiler)
+// ==========================================
+struct WaterDiagnosis {
+    float wqi;
+    String state;
+    String signature;
+};
+
+WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp);
+void updateOledDisplay(float turb, float tds, float temp, const WaterDiagnosis& diag);
+
+// ==========================================
 // 1. HARDWARE PIN DEFINITIONS (ESP32 DevKit)
 // ==========================================
 #define PIN_TURBIDITY       34     // ADC1_CH6 (Optical Turbidity Analog Out)
@@ -38,8 +51,8 @@
 // 2. NETWORK & CLOUD INGESTION CREDENTIALS
 // ==========================================
 // Enter your smartphone mobile hotspot name and password below:
-const char* WIFI_SSID     = "Your_WiFi_Hotspot"; 
-const char* WIFI_PASSWORD = "Your_WiFi_Password";
+const char* WIFI_SSID     = "Aths"; 
+const char* WIFI_PASSWORD = "s27gb9yu";
 
 // Live Vercel Production Serverless Endpoint
 const char* CLOUD_API_URL = "https://jalrakshak-rosy.vercel.app/api/telemetry";
@@ -113,12 +126,6 @@ float readFluidTemp() {
 // ==========================================
 // 5. LOCAL ANOMALY CLASSIFICATION
 // ==========================================
-struct WaterDiagnosis {
-    float wqi;
-    String state;
-    String signature;
-};
-
 WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
     float zTurb = max(0.0f, (turb - 2.0f) / 3.0f);
     float zTds  = max(0.0f, (tds - 150.0f) / 50.0f);

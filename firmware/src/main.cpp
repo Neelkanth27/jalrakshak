@@ -20,6 +20,18 @@
 #include <ArduinoJson.h>
 
 // ==========================================
+// DATA STRUCTURES & FORWARD DECLARATIONS
+// ==========================================
+struct WaterDiagnosis {
+    float wqi;
+    String state;
+    String signature;
+};
+
+WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp);
+void updateOledDisplay(float turb, float tds, float temp, const WaterDiagnosis& diag);
+
+// ==========================================
 // 1. HARDWARE PIN DEFINITIONS (ESP32 DevKit)
 // ==========================================
 #define PIN_TURBIDITY       34     // ADC1_CH6 (Optical Turbidity Analog Out)
@@ -115,12 +127,6 @@ float readFluidTemp() {
 // ==========================================
 // 5. LOCAL ANOMALY CLASSIFICATION & ACTUATION
 // ==========================================
-struct WaterDiagnosis {
-    float wqi;
-    String state;
-    String signature;
-};
-
 WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
     float zTurb = max(0.0f, (turb - 2.0f) / 3.0f);
     float zTds  = max(0.0f, (tds - 150.0f) / 50.0f);
