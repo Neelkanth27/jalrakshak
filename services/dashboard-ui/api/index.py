@@ -10,6 +10,7 @@ Features:
 import os
 import json
 import ssl
+import time
 import logging
 import urllib.parse
 from datetime import datetime
@@ -37,8 +38,11 @@ logger = logging.getLogger("jalrakshak-cloud-api")
 
 # Environment & Database Configuration
 DEVICE_API_KEY = os.getenv("DEVICE_API_KEY", "jal_sec_dev_local_key").strip()
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "9183317918:AAFgXyi5NLRb2dgVNvFrxMDyOQkBWioCaO4").strip()
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "6809883846").strip()
+
+_last_telegram_alert_state = None
+_last_telegram_alert_time = 0.0
 
 RAW_DB_URL = os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL") or "sqlite:////tmp/jalrakshak_cloud.db"
 
@@ -236,17 +240,29 @@ def calculate_wqi_and_signature(turbidity: float, tds: float, temp: float):
     return wqi, state, signature
 
 
-# Telegram Dispatch Helper
+# Telegram Dispatch Helper with intelligent debouncing
 def dispatch_telegram_alert(out: TelemetryOut):
+    global _last_telegram_alert_state, _last_telegram_alert_time
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
+
+    now = time.time()
+    # Debounce: Alert only on state transition (e.g. NORMAL -> WARNING/ALARM) or every 5 minutes if persisting
+    state_changed = (out.state != _last_telegram_alert_state)
+    time_elapsed = (now - _last_telegram_alert_time) > 300.0  # 5 minutes
+
+    if not (state_changed or time_elapsed):
+        return
+
+    _last_telegram_alert_state = out.state
+    _last_telegram_alert_time = now
 
     emoji = "🚨" if out.state == "ALARM" else "⚠️"
     msg = (
         f"{emoji} *JALRAKSHAK CLOUD ALERT: {out.state}*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"⏱ *Timestamp:* `{out.timestamp}` (UTC)\n"
-        f"📊 *Water Quality Index (WQI):* `{out.wqi} / 100`\n"
+        f"📊 *Water Quality Index (WQI):* `{out.wqi:.1f} / 100`\n"
         f"🔍 *Diagnosis:* {out.contaminant_signature}\n\n"
         f"📈 *Live Telemetry:*\n"
         f"  • Turbidity: `{out.turbidity_ntu:.1f} NTU`\n"
@@ -257,6 +273,7 @@ def dispatch_telegram_alert(out: TelemetryOut):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     try:
         httpx.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=4.0)
+        logger.info(f"Telegram alert dispatched successfully for state {out.state}")
     except Exception as e:
         logger.warning(f"Telegram dispatch failed: {e}")
 
@@ -389,10 +406,8 @@ def ingest_telemetry(data: TelemetryIn):
 
     if state in ["WARNING", "ALARM"]:
         dispatch_telegram_alert(result)
-
-    return result
-
-    if state in ["WARNING", "ALARM"]:
-        dispatch_telegram_alert(result)
+    elif state == "NORMAL":
+        global _last_telegram_alert_state
+        _last_telegram_alert_state = "NORMAL"
 
     return result
