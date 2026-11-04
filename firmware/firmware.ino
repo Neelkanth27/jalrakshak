@@ -286,13 +286,42 @@ void setup() {
     tempSensors.begin();
 
     Wire.begin(OLED_SDA, OLED_SCL);
-    bool oledOk = display.begin(0x3C, true);
-    if (!oledOk) {
+    Wire.setClock(100000);  // 100 kHz standard mode for rock-solid breadboard I2C
+    delay(50);
+
+    // Active I2C Bus Diagnostics
+    Serial.println("\n[I2C] Scanning I2C bus on SDA=GPIO21, SCL=GPIO22...");
+    byte foundDevices = 0;
+    byte detectedAddr = 0;
+    for (byte addr = 1; addr < 127; addr++) {
+        Wire.beginTransmission(addr);
+        byte error = Wire.endTransmission();
+        if (error == 0) {
+            Serial.printf("[I2C] >>> SUCCESS: Device discovered at address 0x%02X <<<\n", addr);
+            if (addr == 0x3C || addr == 0x3D) {
+                detectedAddr = addr;
+            }
+            foundDevices++;
+        }
+    }
+
+    if (foundDevices == 0) {
+        Serial.println("[I2C] >>> ALERT: 0 I2C devices acknowledged! <<<");
+        Serial.println("[I2C] Check 1: Terminal Board - SCK must be Terminal 2 (D22).");
+        Serial.println("[I2C] Check 2: Terminal Board - SDA must be Terminal 5 (D21) -- leave TX0 & RX0 empty!");
+        Serial.println("[I2C] Check 3: Breadboard - verify OLED GND and VDD pins are firmly in power rails.");
+    }
+
+    uint8_t targetAddr = (detectedAddr != 0) ? detectedAddr : 0x3C;
+    bool oledOk = display.begin(targetAddr, true);
+    if (!oledOk && targetAddr == 0x3C) {
         oledOk = display.begin(0x3D, true);
     }
+
     if (!oledOk) {
-        Serial.println("[OLED] SH1106 allocation failed. Check I2C wiring (SDA=21, SCL=22).");
+        Serial.println("[OLED] SH1106 initialization failed. Check I2C wiring (SDA=21, SCL=22).");
     } else {
+        Serial.printf("[OLED] Initialized successfully at address 0x%02X!\n", targetAddr);
         display.clearDisplay();
         display.setTextSize(1);
         display.setTextColor(SH110X_WHITE);
