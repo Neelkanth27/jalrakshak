@@ -375,14 +375,16 @@ void setup() {
     Wire.write(0xDB); Wire.write(0x40); // VCOMH
     Wire.write(0xA6); // Normal display
     Wire.write(0xAF); // Display ON
-    Wire.endTransmission();
+    byte wakeErr = Wire.endTransmission();
+    Serial.printf("[OLED] Wake-up transmission result: %d (0=ACK/Success, 2=Addr NACK, 3=Data NACK, 5=Timeout)\n", wakeErr);
     delay(50);
 
     // Hardware verification flash (illuminates all pixels for 300ms so user sees hardware response)
     Wire.beginTransmission(targetAddr);
     Wire.write(0x00);
     Wire.write(0xA5); // Entire display ON
-    Wire.endTransmission();
+    byte flashErr = Wire.endTransmission();
+    Serial.printf("[OLED] Flash test transmission result: %d\n", flashErr);
     delay(300);
     Wire.beginTransmission(targetAddr);
     Wire.write(0x00);
