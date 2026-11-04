@@ -40,7 +40,9 @@ void updateOledDisplay(float turb, float tds, float temp, const WaterDiagnosis& 
 #define PIN_LED_GREEN       18     // State: NORMAL / Pristine
 #define PIN_LED_YELLOW      19     // State: WARNING / Caution
 #define PIN_LED_RED         23     // State: ALARM / Critical Contamination
-#define PIN_BUZZER          5      // Active 5V Buzzer
+#define PIN_BUZZER          5      // Active 5V Buzzer (Active-Low sink)
+#define PIN_MUTE_BOOT_BTN   0      // Built-in ESP32 BOOT button (Zero extra wiring required!)
+#define PIN_MUTE_EXT_BTN    13     // Optional external push button / toggle switch (D13 to GND)
 
 #define OLED_SDA            21     // Hardware I2C SDA
 #define OLED_SCL            22     // Hardware I2C SCL
@@ -75,6 +77,7 @@ unsigned long lastTelemetryTime = 0;
 const unsigned long TELEMETRY_INTERVAL_MS = 3000;
 unsigned long syncCounter = 0;
 bool wifiConnected = false;
+bool alarmAcknowledged = false; // Operator alarm acknowledge/mute latch
 
 // ==========================================
 // 4. SENSOR SAMPLING & SIGNAL CONDITIONING
@@ -146,20 +149,28 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
         digitalWrite(PIN_LED_GREEN, HIGH);
         digitalWrite(PIN_LED_YELLOW, LOW);
         digitalWrite(PIN_LED_RED, LOW);
+        if (alarmAcknowledged) {
+            alarmAcknowledged = false;
+            Serial.println("[ALARM] Water quality normalized. Mute latch reset.");
+        }
         noTone(PIN_BUZZER);
-        digitalWrite(PIN_BUZZER, LOW);
+        digitalWrite(PIN_BUZZER, HIGH); // Off for active-low sink
     } else if (compositeAnomaly < 2.0f) {
         diag.state = "WARNING";
         diag.signature = (turb > 10.0f) ? "Turbidity Drift / Sediments" : "Elevated Mineral Dissolution";
         digitalWrite(PIN_LED_GREEN, LOW);
         digitalWrite(PIN_LED_YELLOW, HIGH);
         digitalWrite(PIN_LED_RED, LOW);
-        // Intermittent warning pulse
-        if (millis() % 1000 < 200) {
+        // Intermittent warning pulse (unless muted)
+        if (alarmAcknowledged) {
+            noTone(PIN_BUZZER);
+            digitalWrite(PIN_BUZZER, HIGH);
+        } else if (millis() % 1000 < 200) {
             tone(PIN_BUZZER, 2000);
+            digitalWrite(PIN_BUZZER, LOW);
         } else {
             noTone(PIN_BUZZER);
-            digitalWrite(PIN_BUZZER, LOW);
+            digitalWrite(PIN_BUZZER, HIGH);
         }
     } else {
         diag.state = "ALARM";
@@ -173,8 +184,15 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
         digitalWrite(PIN_LED_GREEN, LOW);
         digitalWrite(PIN_LED_YELLOW, LOW);
         digitalWrite(PIN_LED_RED, HIGH);
-        // Loud audible alarm tone (works on both Passive and Active buzzers)
-        tone(PIN_BUZZER, 2600);
+
+        // Audible alarm: Silence if acknowledged/muted by operator, otherwise sound loudly
+        if (alarmAcknowledged) {
+            noTone(PIN_BUZZER);
+            digitalWrite(PIN_BUZZER, HIGH); // Muted by operator
+        } else {
+            tone(PIN_BUZZER, 2600);
+            digitalWrite(PIN_BUZZER, LOW);  // Active-low buzzer sound
+        }
     }
 
     return diag;
@@ -357,6 +375,11 @@ void setup() {
     pinMode(PIN_LED_YELLOW, OUTPUT);
     pinMode(PIN_LED_RED, OUTPUT);
     pinMode(PIN_BUZZER, OUTPUT);
+    digitalWrite(PIN_BUZZER, HIGH); // Off initially for active-low sink
+
+    // Configure Mute / Acknowledge Buttons (Active LOW with internal pull-ups)
+    pinMode(PIN_MUTE_BOOT_BTN, INPUT_PULLUP); // Built-in BOOT button (GPIO 0)
+    pinMode(PIN_MUTE_EXT_BTN, INPUT_PULLUP);  // External push button (GPIO 13 to GND)
 
     digitalWrite(PIN_LED_GREEN, HIGH);
     digitalWrite(PIN_LED_YELLOW, HIGH);
@@ -478,6 +501,14 @@ void setup() {
 
 void loop() {
     unsigned long currentMillis = millis();
+
+    // Check Alarm Acknowledge / Mute button press
+    if (digitalRead(PIN_MUTE_BOOT_BTN) == LOW || digitalRead(PIN_MUTE_EXT_BTN) == LOW) {
+        if (!alarmAcknowledged) {
+            alarmAcknowledged = true;
+            Serial.println("[ALARM] >>> Operator Pressed MUTE Button: Buzzer Silenced (Red LED remains active) <<<");
+        }
+    }
 
     float tempC = readFluidTemp();
     float turbNtu = readTurbidity(tempC);
