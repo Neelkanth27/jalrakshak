@@ -11,7 +11,7 @@
 #include <WiFiClientSecure.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <Adafruit_SH110X.h>  // Optimized for 1.3" I2C OLED (SH1106)
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <ArduinoJson.h>
@@ -28,19 +28,20 @@
 #define PIN_LED_RED         23     // State: ALARM / Critical Contamination
 #define PIN_BUZZER          5      // Active 5V Buzzer
 
-#define OLED_SDA            21     // I2C SDA
-#define OLED_SCL            22     // I2C SCL
+#define OLED_SDA            21     // Hardware I2C SDA
+#define OLED_SCL            22     // Hardware I2C SCL
 #define SCREEN_WIDTH        128
 #define SCREEN_HEIGHT       64
-#define OLED_RESET          -1     // Share reset with ESP32
-#define SCREEN_ADDRESS      0x3C   // Default I2C address for SSD1306 0.96"
+#define SCREEN_ADDRESS      0x3C   // Default I2C address for 1.3" OLED
 
 // ==========================================
 // 2. NETWORK & CLOUD INGESTION CREDENTIALS
 // ==========================================
+// Enter your smartphone mobile hotspot name and password below:
 const char* WIFI_SSID     = "Your_WiFi_Hotspot"; 
 const char* WIFI_PASSWORD = "Your_WiFi_Password";
 
+// Live Vercel Production Serverless Endpoint
 const char* CLOUD_API_URL = "https://jalrakshak-rosy.vercel.app/api/telemetry";
 const char* DEVICE_API_KEY = "jal_sec_dev_local_key";
 const char* DEVICE_ID      = "ESP32_JALRAKSHAK_01";
@@ -48,7 +49,8 @@ const char* DEVICE_ID      = "ESP32_JALRAKSHAK_01";
 // ==========================================
 // 3. OBJECT INITIALIZATION & GLOBAL STATE
 // ==========================================
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+// 1.3" SH1106 I2C OLED Display
+Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 OneWire oneWire(PIN_ONEWIRE);
 DallasTemperature tempSensors(&oneWire);
 
@@ -166,12 +168,12 @@ void updateOledDisplay(float turb, float tds, float temp, const WaterDiagnosis& 
     display.clearDisplay();
 
     display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
+    display.setTextColor(SH110X_WHITE);
     display.setCursor(0, 0);
     display.print("JALRAKSHAK | ");
     display.print(diag.state);
 
-    display.drawLine(0, 10, 127, 10, SSD1306_WHITE);
+    display.drawLine(0, 10, 127, 10, SH110X_WHITE);
 
     display.setCursor(0, 14);
     display.setTextSize(2);
@@ -269,12 +271,12 @@ void setup() {
     tempSensors.begin();
 
     Wire.begin(OLED_SDA, OLED_SCL);
-    if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-        Serial.println("[OLED] SSD1306 allocation failed. Check I2C wiring (SDA=21, SCL=22).");
+    if (!display.begin(SCREEN_ADDRESS, true)) {
+        Serial.println("[OLED] SH1106 allocation failed. Check I2C wiring (SDA=21, SCL=22).");
     } else {
         display.clearDisplay();
         display.setTextSize(1);
-        display.setTextColor(SSD1306_WHITE);
+        display.setTextColor(SH110X_WHITE);
         display.setCursor(10, 20);
         display.println("JALRAKSHAK SYSTEM");
         display.setCursor(10, 35);
