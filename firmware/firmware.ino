@@ -303,8 +303,8 @@ void setup() {
     Wire.setClock(100000);  // 100 kHz standard mode for rock-solid breadboard I2C
     delay(50);
 
-    // Active I2C Bus Diagnostics
-    Serial.println("\n[I2C] Scanning I2C bus on SDA=GPIO21, SCL=GPIO22...");
+    // Active I2C Bus Diagnostics & Auto-Pin-Swap Detection
+    Serial.println("\n[I2C] Scanning I2C bus (Attempt 1: SDA=GPIO21, SCL=GPIO22)...");
     byte foundDevices = 0;
     byte detectedAddr = 0;
     for (byte addr = 1; addr < 127; addr++) {
@@ -319,11 +319,33 @@ void setup() {
         }
     }
 
+    // If 0 devices found, automatically test swapped lines (SDA=GPIO22, SCL=GPIO21)
     if (foundDevices == 0) {
-        Serial.println("[I2C] >>> ALERT: 0 I2C devices acknowledged! <<<");
-        Serial.println("[I2C] Check 1: Terminal Board - SCK must be Terminal 2 (D22).");
-        Serial.println("[I2C] Check 2: Terminal Board - SDA must be Terminal 5 (D21) -- leave TX0 & RX0 empty!");
-        Serial.println("[I2C] Check 3: Breadboard - verify OLED GND and VDD pins are firmly in power rails.");
+        Serial.println("[I2C] No device at 21/22. Testing SWAPPED pins (Attempt 2: SDA=GPIO22, SCL=GPIO21)...");
+        Wire.end();
+        delay(50);
+        Wire.begin(22, 21);
+        Wire.setClock(100000);
+        delay(50);
+
+        for (byte addr = 1; addr < 127; addr++) {
+            Wire.beginTransmission(addr);
+            byte error = Wire.endTransmission();
+            if (error == 0) {
+                Serial.printf("[I2C] >>> SUCCESS with SWAPPED pins: Device discovered at address 0x%02X! <<<\n", addr);
+                if (addr == 0x3C || addr == 0x3D) {
+                    detectedAddr = addr;
+                }
+                foundDevices++;
+            }
+        }
+    }
+
+    if (foundDevices == 0) {
+        Serial.println("[I2C] >>> ALERT: 0 I2C devices acknowledged on both pin combinations! <<<");
+        Serial.println("[I2C] Fix 1: Connect OLED VDD to 5V (VIN rail). Model M-130-12864 has a 3.3V LDO regulator that needs 5V input!");
+        Serial.println("[I2C] Fix 2: Check Terminal 5 (D21) & Terminal 2 (D22) - ensure bare metal wire is clamped, not plastic.");
+        Serial.println("[I2C] Fix 3: Check breadboard rows - ensure wires line up with GND, VDD, SCK, SDA.");
     }
 
     uint8_t targetAddr = (detectedAddr != 0) ? detectedAddr : 0x3C;
