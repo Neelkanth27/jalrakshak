@@ -11,7 +11,8 @@
 #include <WiFiClientSecure.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_SH110X.h>  // Optimized for 1.3" I2C OLED (SH1106)
+#include <Adafruit_SH110X.h>  // 1.3" I2C OLED (SH1106)
+#include <Adafruit_SSD1306.h> // Universal support for SSD1306 OLEDs
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <ArduinoJson.h>
@@ -62,8 +63,12 @@ const char* DEVICE_ID      = "ESP32_JALRAKSHAK_01";
 // ==========================================
 // 3. OBJECT INITIALIZATION & GLOBAL STATE
 // ==========================================
-// 1.3" SH1106 I2C OLED Display
-Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+// Dual-driver OLED instances (Universal support for SH1106 and SSD1306)
+Adafruit_SH1106G displaySH = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+Adafruit_SSD1306 displaySSD = Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+bool oledIsSSD = false;
+bool oledIsSH = false;
+
 OneWire oneWire(PIN_ONEWIRE);
 DallasTemperature tempSensors(&oneWire);
 
@@ -179,42 +184,51 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
 // ==========================================
 // 6. OLED GRAPHICAL DISPLAY RENDERER
 // ==========================================
+void renderScreen(Adafruit_GFX& disp, float turb, float tds, float temp, const WaterDiagnosis& diag) {
+    disp.setTextSize(1);
+    disp.setTextColor(1); // 1 = White in both SSD1306 and SH110X
+    disp.setCursor(0, 0);
+    disp.print("JALRAKSHAK | ");
+    disp.print(diag.state);
+
+    disp.drawLine(0, 10, 127, 10, 1);
+
+    disp.setCursor(0, 14);
+    disp.setTextSize(2);
+    disp.print("WQI:");
+    disp.print((int)diag.wqi);
+    disp.setTextSize(1);
+    disp.print("/100");
+
+    disp.setTextSize(1);
+    disp.setCursor(0, 32);
+    disp.print("Turb: ");
+    disp.print(turb, 1);
+    disp.print(" NTU");
+
+    disp.setCursor(0, 42);
+    disp.print("TDS : ");
+    disp.print((int)tds);
+    disp.print(" ppm");
+
+    disp.setCursor(0, 52);
+    disp.print("Temp: ");
+    disp.print(temp, 1);
+    disp.print(" C  ");
+    disp.print(wifiConnected ? "[Cloud OK]" : "[Offline]");
+}
+
 void updateOledDisplay(float turb, float tds, float temp, const WaterDiagnosis& diag) {
-    display.clearDisplay();
-
-    display.setTextSize(1);
-    display.setTextColor(SH110X_WHITE);
-    display.setCursor(0, 0);
-    display.print("JALRAKSHAK | ");
-    display.print(diag.state);
-
-    display.drawLine(0, 10, 127, 10, SH110X_WHITE);
-
-    display.setCursor(0, 14);
-    display.setTextSize(2);
-    display.print("WQI:");
-    display.print((int)diag.wqi);
-    display.setTextSize(1);
-    display.print("/100");
-
-    display.setTextSize(1);
-    display.setCursor(0, 32);
-    display.print("Turb: ");
-    display.print(turb, 1);
-    display.print(" NTU");
-
-    display.setCursor(0, 42);
-    display.print("TDS : ");
-    display.print((int)tds);
-    display.print(" ppm");
-
-    display.setCursor(0, 52);
-    display.print("Temp: ");
-    display.print(temp, 1);
-    display.print(" C  ");
-    display.print(wifiConnected ? "[Cloud OK]" : "[Offline]");
-
-    display.display();
+    if (oledIsSSD) {
+        displaySSD.clearDisplay();
+        renderScreen(displaySSD, turb, tds, temp, diag);
+        displaySSD.display();
+    }
+    if (oledIsSH) {
+        displaySH.clearDisplay();
+        renderScreen(displaySH, turb, tds, temp, diag);
+        displaySH.display();
+    }
 }
 
 // ==========================================
@@ -313,23 +327,37 @@ void setup() {
     }
 
     uint8_t targetAddr = (detectedAddr != 0) ? detectedAddr : 0x3C;
-    bool oledOk = display.begin(targetAddr, true);
-    if (!oledOk && targetAddr == 0x3C) {
-        oledOk = display.begin(0x3D, true);
+
+    // 1. Try initializing SSD1306 (with internal charge pump boosted)
+    if (displaySSD.begin(SSD1306_SWITCHCAPVCC, targetAddr)) {
+        oledIsSSD = true;
+        Serial.printf("[OLED] Initialized SSD1306 driver at address 0x%02X!\n", targetAddr);
+        displaySSD.clearDisplay();
+        displaySSD.setTextSize(1);
+        displaySSD.setTextColor(SSD1306_WHITE);
+        displaySSD.setCursor(10, 20);
+        displaySSD.println("JALRAKSHAK SYSTEM");
+        displaySSD.setCursor(10, 35);
+        displaySSD.println("Connecting Wi-Fi...");
+        displaySSD.display();
     }
 
-    if (!oledOk) {
-        Serial.println("[OLED] SH1106 initialization failed. Check I2C wiring (SDA=21, SCL=22).");
-    } else {
-        Serial.printf("[OLED] Initialized successfully at address 0x%02X!\n", targetAddr);
-        display.clearDisplay();
-        display.setTextSize(1);
-        display.setTextColor(SH110X_WHITE);
-        display.setCursor(10, 20);
-        display.println("JALRAKSHAK SYSTEM");
-        display.setCursor(10, 35);
-        display.println("Connecting Wi-Fi...");
-        display.display();
+    // 2. Also try initializing SH1106 driver
+    if (displaySH.begin(targetAddr, true)) {
+        oledIsSH = true;
+        Serial.printf("[OLED] Initialized SH1106 driver at address 0x%02X!\n", targetAddr);
+        displaySH.clearDisplay();
+        displaySH.setTextSize(1);
+        displaySH.setTextColor(SH110X_WHITE);
+        displaySH.setCursor(10, 20);
+        displaySH.println("JALRAKSHAK SYSTEM");
+        displaySH.setCursor(10, 35);
+        displaySH.println("Connecting Wi-Fi...");
+        displaySH.display();
+    }
+
+    if (!oledIsSSD && !oledIsSH) {
+        Serial.println("[OLED] Initialization failed. Check I2C wiring (SDA=21, SCL=22).");
     }
 
     WiFi.mode(WIFI_STA);
