@@ -143,6 +143,7 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
         digitalWrite(PIN_LED_GREEN, HIGH);
         digitalWrite(PIN_LED_YELLOW, LOW);
         digitalWrite(PIN_LED_RED, LOW);
+        noTone(PIN_BUZZER);
         digitalWrite(PIN_BUZZER, LOW);
     } else if (compositeAnomaly < 2.0f) {
         diag.state = "WARNING";
@@ -150,7 +151,12 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
         digitalWrite(PIN_LED_GREEN, LOW);
         digitalWrite(PIN_LED_YELLOW, HIGH);
         digitalWrite(PIN_LED_RED, LOW);
-        digitalWrite(PIN_BUZZER, (millis() % 1000 < 100) ? HIGH : LOW);
+        if (millis() % 1000 < 200) {
+            tone(PIN_BUZZER, 2000);
+        } else {
+            noTone(PIN_BUZZER);
+            digitalWrite(PIN_BUZZER, LOW);
+        }
     } else {
         diag.state = "ALARM";
         if (turb > 25.0f && tds > 500.0f) {
@@ -163,7 +169,7 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
         digitalWrite(PIN_LED_GREEN, LOW);
         digitalWrite(PIN_LED_YELLOW, LOW);
         digitalWrite(PIN_LED_RED, HIGH);
-        digitalWrite(PIN_BUZZER, (millis() % 500 < 250) ? HIGH : LOW);
+        tone(PIN_BUZZER, 2600);
     }
 
     return diag;
