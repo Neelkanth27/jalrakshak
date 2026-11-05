@@ -104,22 +104,20 @@ float readTurbidity(float vTemp) {
     if (smoothTurbVoltage < 0.0f) {
         smoothTurbVoltage = rawVoltage;
     } else {
-        smoothTurbVoltage = (0.4f * rawVoltage) + (0.6f * smoothTurbVoltage);
+        smoothTurbVoltage = (0.25f * rawVoltage) + (0.75f * smoothTurbVoltage);
     }
     lastTurbVoltage = smoothTurbVoltage;
 
     float voltage = smoothTurbVoltage;
     float ntu = 0.0f;
-    // Calibrated for 3.3V VCC supply with EMA smoothing:
-    // In clean tap water, voltage sits around 2.0V - 3.2V (Pristine: 0.5 - 5.0 NTU)
-    // In turbid/silty water, voltage drops between 1.0V and 2.0V (Warning: 5 - 25 NTU)
-    // In dark/slurry/blocked conditions, voltage drops below 1.0V (Severe: > 25 NTU)
-    if (voltage >= 2.0f) {
-        ntu = 0.5f + max(0.0f, (2.8f - voltage) * 2.0f);
-    } else if (voltage >= 1.0f) {
-        ntu = 5.0f + (2.0f - voltage) * (20.0f / 1.0f);
+    // Calibrated for bench optical geometry (Clean tap water baseline: 1.1V - 2.2V)
+    // Silt / Mud anomaly drops below 0.8V
+    if (voltage >= 1.15f) {
+        ntu = 0.5f + max(0.0f, (1.8f - voltage) * 4.0f);
+    } else if (voltage >= 0.75f) {
+        ntu = 5.0f + (1.15f - voltage) * (20.0f / 0.4f);
     } else {
-        ntu = 25.0f + (1.0f - voltage) * (1000.0f / 1.0f);
+        ntu = 25.0f + (0.75f - voltage) * (1000.0f / 0.75f);
     }
     if (ntu < 0.5f) ntu = 0.5f;
     if (ntu > 3000.0f) ntu = 3000.0f;
@@ -177,11 +175,11 @@ void soundBuzzer(unsigned int freq = 2600) {
 static String systemState = "NORMAL";
 
 WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
-    // BIS IS 10500:2012 Indian Drinking Water Standards:
-    // Turbidity: Desirable < 5.0 NTU, Permissible < 15.0 NTU
-    // TDS: Desirable < 500 ppm, Permissible < 2000 ppm
-    float zTurb = max(0.0f, (turb - 5.0f) / 8.0f);
-    float zTds  = max(0.0f, (tds - 500.0f) / 250.0f);
+    // Bench Baseline & BIS IS 10500:2012 Drinking Water Calibration:
+    // Turbidity: Clean Baseline < 8.0 NTU, Silt/Soil Anomaly > 20.0 NTU
+    // TDS: Clean Tap Water < 550 ppm, Saline Anomaly > 800 ppm
+    float zTurb = max(0.0f, (turb - 8.0f) / 8.0f);
+    float zTds  = max(0.0f, (tds - 550.0f) / 200.0f);
     float compositeAnomaly = sqrt(zTurb * zTurb + zTds * zTds);
 
     float wqi = max(0.0f, min(100.0f, 100.0f - (compositeAnomaly * 25.0f)));
