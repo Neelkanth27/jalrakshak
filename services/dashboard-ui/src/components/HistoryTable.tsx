@@ -80,7 +80,7 @@ export const HistoryTable: React.FC<HistoryTableProps> = ({ history, onRefresh, 
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
               Historical Telemetry & Audit Trail
             </h3>
-            <p className="text-[11px] text-slate-500 font-mono">Persisted in Neon PostgreSQL (US-East) • Total: {history.length} events</p>
+            <p className="text-[11px] text-slate-500 font-mono">Persisted in Neon PostgreSQL (US-East) • 2-Minute Audit Intervals • Total: {history.length} logged intervals</p>
           </div>
         </div>
 

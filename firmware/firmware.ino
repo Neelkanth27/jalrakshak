@@ -104,20 +104,20 @@ float readTurbidity(float vTemp) {
     if (smoothTurbVoltage < 0.0f) {
         smoothTurbVoltage = rawVoltage;
     } else {
-        smoothTurbVoltage = (0.25f * rawVoltage) + (0.75f * smoothTurbVoltage);
+        smoothTurbVoltage = (0.15f * rawVoltage) + (0.85f * smoothTurbVoltage);
     }
     lastTurbVoltage = smoothTurbVoltage;
 
     float voltage = smoothTurbVoltage;
     float ntu = 0.0f;
-    // Calibrated for bench optical geometry (Clean tap water baseline: 1.1V - 2.2V)
-    // Silt / Mud anomaly drops below 0.8V
-    if (voltage >= 1.15f) {
-        ntu = 0.5f + max(0.0f, (1.8f - voltage) * 4.0f);
-    } else if (voltage >= 0.75f) {
-        ntu = 5.0f + (1.15f - voltage) * (20.0f / 0.4f);
+    // Calibrated for bench optical geometry (Clean tap water baseline: 0.90V - 2.5V)
+    // Silt / Mud anomaly drops below 0.55V
+    if (voltage >= 0.90f) {
+        ntu = 0.5f + max(0.0f, (2.0f - voltage) * 2.5f);
+    } else if (voltage >= 0.55f) {
+        ntu = 5.0f + (0.90f - voltage) * 100.0f;
     } else {
-        ntu = 25.0f + (0.75f - voltage) * (1000.0f / 0.75f);
+        ntu = 40.0f + (0.55f - voltage) * (2960.0f / 0.55f);
     }
     if (ntu < 0.5f) ntu = 0.5f;
     if (ntu > 3000.0f) ntu = 3000.0f;
@@ -129,7 +129,7 @@ float readTDS(float temperatureC) {
     if (smoothTdsVoltage < 0.0f) {
         smoothTdsVoltage = rawVoltage;
     } else {
-        smoothTdsVoltage = (0.4f * rawVoltage) + (0.6f * smoothTdsVoltage);
+        smoothTdsVoltage = (0.15f * rawVoltage) + (0.85f * smoothTdsVoltage);
     }
     lastTdsVoltage = smoothTdsVoltage;
 
@@ -171,17 +171,17 @@ void soundBuzzer(unsigned int freq = 2600) {
     tone(PIN_BUZZER, freq);
 }
 
-// Industrial SCADA State Machine with Schmitt-Trigger Hysteresis & Persistence Qualification
+// Industrial SCADA State Machine with Schmitt-Trigger Hysteresis & Continuous 30s Qualification
 static String systemState = "NORMAL";
 static unsigned long alarmConditionStart = 0;
-const unsigned long ALARM_QUALIFICATION_MS = 15000; // 15 seconds of sustained anomaly required to trigger loud buzzer
+const unsigned long ALARM_QUALIFICATION_MS = 30000; // 30 seconds of continuous sustained anomaly required to trigger loud buzzer
 
 WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
     // Bench Baseline & Client-Adaptive BIS IS 10500:2012 Drinking Water Calibration:
-    // Turbidity: Clean Baseline < 10.0 NTU, Silt/Soil Anomaly > 25.0 NTU
+    // Turbidity: Clean Baseline < 10.0 NTU, Silt/Soil Anomaly > 35.0 NTU
     // TDS: Clean Tap Water < 650 ppm, Saline Anomaly > 850 ppm
-    float zTurb = max(0.0f, (turb - 10.0f) / 10.0f);
-    float zTds  = max(0.0f, (tds - 650.0f) / 250.0f);
+    float zTurb = max(0.0f, (turb - 10.0f) / 15.0f);
+    float zTds  = max(0.0f, (tds - 650.0f) / 200.0f);
     float compositeAnomaly = sqrt(zTurb * zTurb + zTds * zTds);
 
     float wqi = max(0.0f, min(100.0f, 100.0f - (compositeAnomaly * 25.0f)));
@@ -224,15 +224,15 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
         silenceBuzzer();
     } else if (systemState == "WARNING") {
         alarmConditionStart = 0; // Reset qualification timer
-        diag.signature = (turb > 10.0f) ? "Turbidity Drift / Sediments" : "Elevated Mineral Dissolution";
+        diag.signature = (turb > 25.0f) ? "Turbidity Drift / Sediments" : "Elevated Mineral Dissolution";
         digitalWrite(PIN_LED_GREEN, LOW);
         digitalWrite(PIN_LED_YELLOW, HIGH);
         digitalWrite(PIN_LED_RED, LOW);
         silenceBuzzer(); // Warning is purely visual (Yellow LED) to keep workspace quiet
     } else {
-        if (turb > 25.0f && tds > 800.0f) {
+        if (turb > 35.0f && tds > 850.0f) {
             diag.signature = "Severe Runoff / Surface Influx";
-        } else if (turb > 25.0f) {
+        } else if (turb > 35.0f) {
             diag.signature = "Severe Sediment / Particulate Intrusion";
         } else {
             diag.signature = "Chemical / Saline Infiltration";
@@ -244,12 +244,12 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
         // Start qualification timer on first cycle entering ALARM
         if (alarmConditionStart == 0) {
             alarmConditionStart = millis();
-            Serial.println("[ALARM] >>> Anomaly detected. Qualifying persistence (15s)... <<<");
+            Serial.println("[ALARM] >>> Anomaly detected. Qualifying continuous persistence (30s)... <<<");
         }
 
         unsigned long sustainedTime = millis() - alarmConditionStart;
 
-        // Audible alarm: Only sound if anomaly has persisted beyond 15 seconds AND not muted!
+        // Audible alarm: Only sound if anomaly has persisted continuously for 30 seconds AND not muted!
         if (sustainedTime >= ALARM_QUALIFICATION_MS) {
             if (alarmAcknowledged) {
                 silenceBuzzer();
@@ -257,7 +257,7 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
                 soundBuzzer(2600);
             }
         } else {
-            silenceBuzzer(); // In qualification window (silent to prevent false alarms from brief bumps)
+            silenceBuzzer(); // In qualification window: strictly silent to eliminate false alarms
         }
     }
 

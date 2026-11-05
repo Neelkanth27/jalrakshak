@@ -1,10 +1,7 @@
 /**
  * ==============================================================================
  * Project: JalRakshak — Low-Cost Multi-Sensor Water Quality Monitoring System
- * File: firmware/src/main.cpp
- * Description: Production ESP32 DevKit V1 C++ firmware for analog optical
- *              turbidity, analog TDS (EC25 compensated), DS18B20 fluid temp,
- *              1.3" I2C OLED display (SH1106), and HTTPS cloud telemetry dispatch.
+ * File: firmware/firmware.ino (Arduino IDE compatible single-file sketch)
  * ==============================================================================
  */
 
@@ -14,13 +11,15 @@
 #include <WiFiClientSecure.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_SH110X.h>
+#include <Adafruit_SH110X.h>  // 1.3" I2C OLED (SH1106)
+#include <Adafruit_SSD1306.h> // Universal support for SSD1306 OLEDs
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <ArduinoJson.h>
 
 // ==========================================
 // DATA STRUCTURES & FORWARD DECLARATIONS
+// (Must be at the top for Arduino IDE compiler)
 // ==========================================
 struct WaterDiagnosis {
     float wqi;
@@ -41,7 +40,9 @@ void updateOledDisplay(float turb, float tds, float temp, const WaterDiagnosis& 
 #define PIN_LED_GREEN       18     // State: NORMAL / Pristine
 #define PIN_LED_YELLOW      19     // State: WARNING / Caution
 #define PIN_LED_RED         23     // State: ALARM / Critical Contamination
-#define PIN_BUZZER          5      // Active 5V Buzzer
+#define PIN_BUZZER          5      // Active 5V Buzzer (Active-Low sink)
+#define PIN_MUTE_BOOT_BTN   0      // Built-in ESP32 BOOT button (Zero extra wiring required!)
+#define PIN_MUTE_EXT_BTN    13     // Optional external push button / toggle switch (D13 to GND)
 
 #define OLED_SDA            21     // Hardware I2C SDA
 #define OLED_SCL            22     // Hardware I2C SCL
@@ -53,8 +54,8 @@ void updateOledDisplay(float turb, float tds, float temp, const WaterDiagnosis& 
 // 2. NETWORK & CLOUD INGESTION CREDENTIALS
 // ==========================================
 // Enter your smartphone mobile hotspot name and password below:
-const char* WIFI_SSID     = "Your_WiFi_Hotspot"; 
-const char* WIFI_PASSWORD = "Your_WiFi_Password";
+const char* WIFI_SSID     = "Aths"; 
+const char* WIFI_PASSWORD = "s27gb9yu";
 
 // Live Vercel Production Serverless Endpoint
 const char* CLOUD_API_URL = "https://jalrakshak-rosy.vercel.app/api/telemetry";
@@ -64,14 +65,19 @@ const char* DEVICE_ID      = "ESP32_JALRAKSHAK_01";
 // ==========================================
 // 3. OBJECT INITIALIZATION & GLOBAL STATE
 // ==========================================
-Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+// Universal OLED Driver state (Native support for 1.3" SH1106 and 0.96" SSD1306)
+Adafruit_SSD1306 displaySSD = Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+uint8_t targetOledAddr = 0x3C;
+bool oledReady = false;
+
 OneWire oneWire(PIN_ONEWIRE);
 DallasTemperature tempSensors(&oneWire);
 
 unsigned long lastTelemetryTime = 0;
-const unsigned long TELEMETRY_INTERVAL_MS = 3000; // Sample and post every 3s
+const unsigned long TELEMETRY_INTERVAL_MS = 3000;
 unsigned long syncCounter = 0;
 bool wifiConnected = false;
+bool alarmAcknowledged = false; // Operator alarm acknowledge/mute latch
 
 // ==========================================
 // 4. SENSOR SAMPLING & SIGNAL CONDITIONING
@@ -86,23 +92,48 @@ float readAdcVoltage(int pin, int samples = 64) {
     return (avgRaw / 4095.0f) * 3.3f;
 }
 
+float lastTurbVoltage = 0.0f;
+float lastTdsVoltage = 0.0f;
+
+// Exponential Moving Average (EMA) filters to prevent rapid LED flickering from liquid ripples or bubbles
+static float smoothTurbVoltage = -1.0f;
+static float smoothTdsVoltage  = -1.0f;
+
 float readTurbidity(float vTemp) {
-    float voltage = readAdcVoltage(PIN_TURBIDITY, 64);
-    float ntu = 0.0f;
-    if (voltage < 2.5f) {
-        ntu = 3000.0f;
-    } else if (voltage >= 3.2f) {
-        ntu = 0.5f;
+    float rawVoltage = readAdcVoltage(PIN_TURBIDITY, 64);
+    if (smoothTurbVoltage < 0.0f) {
+        smoothTurbVoltage = rawVoltage;
     } else {
-        ntu = (3.2f - voltage) * (3000.0f / 0.7f);
+        smoothTurbVoltage = (0.15f * rawVoltage) + (0.85f * smoothTurbVoltage);
     }
-    if (ntu < 0.0f) ntu = 0.0f;
+    lastTurbVoltage = smoothTurbVoltage;
+
+    float voltage = smoothTurbVoltage;
+    float ntu = 0.0f;
+    // Calibrated for bench optical geometry (Clean tap water baseline: 0.90V - 2.5V)
+    // Silt / Mud anomaly drops below 0.55V
+    if (voltage >= 0.90f) {
+        ntu = 0.5f + max(0.0f, (2.0f - voltage) * 2.5f);
+    } else if (voltage >= 0.55f) {
+        ntu = 5.0f + (0.90f - voltage) * 100.0f;
+    } else {
+        ntu = 40.0f + (0.55f - voltage) * (2960.0f / 0.55f);
+    }
+    if (ntu < 0.5f) ntu = 0.5f;
     if (ntu > 3000.0f) ntu = 3000.0f;
     return ntu;
 }
 
 float readTDS(float temperatureC) {
-    float voltage = readAdcVoltage(PIN_TDS, 64);
+    float rawVoltage = readAdcVoltage(PIN_TDS, 64);
+    if (smoothTdsVoltage < 0.0f) {
+        smoothTdsVoltage = rawVoltage;
+    } else {
+        smoothTdsVoltage = (0.15f * rawVoltage) + (0.85f * smoothTdsVoltage);
+    }
+    lastTdsVoltage = smoothTdsVoltage;
+
+    float voltage = smoothTdsVoltage;
     float compensationCoefficient = 1.0f + 0.02f * (temperatureC - 25.0f);
     float compensationVoltage = voltage / compensationCoefficient;
 
@@ -125,43 +156,83 @@ float readFluidTemp() {
 }
 
 // ==========================================
-// 5. LOCAL ANOMALY CLASSIFICATION & ACTUATION
+// 5. LOCAL ANOMALY CLASSIFICATION & BUZZER DRIVER
 // ==========================================
+void silenceBuzzer() {
+    noTone(PIN_BUZZER);
+    pinMode(PIN_BUZZER, OUTPUT);
+    digitalWrite(PIN_BUZZER, HIGH); // Logic HIGH stops active-low sink
+    pinMode(PIN_BUZZER, INPUT);     // High-Z disconnects ground sink completely
+}
+
+void soundBuzzer(unsigned int freq = 2600) {
+    pinMode(PIN_BUZZER, OUTPUT);
+    digitalWrite(PIN_BUZZER, LOW);  // Active-low sink: 0V draws current from VIN (5V)
+    tone(PIN_BUZZER, freq);
+}
+
+// Industrial SCADA State Machine with Schmitt-Trigger Hysteresis & Continuous 30s Qualification
+static String systemState = "NORMAL";
+static unsigned long alarmConditionStart = 0;
+const unsigned long ALARM_QUALIFICATION_MS = 30000; // 30 seconds of continuous sustained anomaly required to trigger loud buzzer
+
 WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
-    float zTurb = max(0.0f, (turb - 2.0f) / 3.0f);
-    float zTds  = max(0.0f, (tds - 150.0f) / 50.0f);
+    // Bench Baseline & Client-Adaptive BIS IS 10500:2012 Drinking Water Calibration:
+    // Turbidity: Clean Baseline < 10.0 NTU, Silt/Soil Anomaly > 35.0 NTU
+    // TDS: Clean Tap Water < 650 ppm, Saline Anomaly > 850 ppm
+    float zTurb = max(0.0f, (turb - 10.0f) / 15.0f);
+    float zTds  = max(0.0f, (tds - 650.0f) / 200.0f);
     float compositeAnomaly = sqrt(zTurb * zTurb + zTds * zTds);
 
     float wqi = max(0.0f, min(100.0f, 100.0f - (compositeAnomaly * 25.0f)));
 
+    // Schmitt-trigger hysteresis transitions prevent rapid LED/relay flickering
+    if (systemState == "NORMAL") {
+        if (compositeAnomaly >= 2.1f) {
+            systemState = "ALARM";
+        } else if (compositeAnomaly >= 1.25f) {
+            systemState = "WARNING";
+        }
+    } else if (systemState == "WARNING") {
+        if (compositeAnomaly >= 2.1f) {
+            systemState = "ALARM";
+        } else if (compositeAnomaly < 0.85f) {
+            systemState = "NORMAL";
+        }
+    } else { // ALARM
+        if (compositeAnomaly < 0.85f) {
+            systemState = "NORMAL";
+        } else if (compositeAnomaly < 1.75f) {
+            systemState = "WARNING";
+        }
+    }
+
     WaterDiagnosis diag;
     diag.wqi = wqi;
+    diag.state = systemState;
 
-    if (compositeAnomaly < 1.0f) {
-        diag.state = "NORMAL";
+    if (systemState == "NORMAL") {
+        alarmConditionStart = 0; // Reset qualification timer immediately
         diag.signature = "Baseline / Pristine Quiescent";
         digitalWrite(PIN_LED_GREEN, HIGH);
         digitalWrite(PIN_LED_YELLOW, LOW);
         digitalWrite(PIN_LED_RED, LOW);
-        noTone(PIN_BUZZER);
-        digitalWrite(PIN_BUZZER, LOW);
-    } else if (compositeAnomaly < 2.0f) {
-        diag.state = "WARNING";
-        diag.signature = (turb > 10.0f) ? "Turbidity Drift / Sediments" : "Elevated Mineral Dissolution";
+        if (alarmAcknowledged) {
+            alarmAcknowledged = false;
+            Serial.println("[ALARM] Water quality normalized. Mute latch reset.");
+        }
+        silenceBuzzer();
+    } else if (systemState == "WARNING") {
+        alarmConditionStart = 0; // Reset qualification timer
+        diag.signature = (turb > 25.0f) ? "Turbidity Drift / Sediments" : "Elevated Mineral Dissolution";
         digitalWrite(PIN_LED_GREEN, LOW);
         digitalWrite(PIN_LED_YELLOW, HIGH);
         digitalWrite(PIN_LED_RED, LOW);
-        if (millis() % 1000 < 200) {
-            tone(PIN_BUZZER, 2000);
-        } else {
-            noTone(PIN_BUZZER);
-            digitalWrite(PIN_BUZZER, LOW);
-        }
+        silenceBuzzer(); // Warning is purely visual (Yellow LED) to keep workspace quiet
     } else {
-        diag.state = "ALARM";
-        if (turb > 25.0f && tds > 500.0f) {
+        if (turb > 35.0f && tds > 850.0f) {
             diag.signature = "Severe Runoff / Surface Influx";
-        } else if (turb > 25.0f) {
+        } else if (turb > 35.0f) {
             diag.signature = "Severe Sediment / Particulate Intrusion";
         } else {
             diag.signature = "Chemical / Saline Infiltration";
@@ -169,51 +240,36 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
         digitalWrite(PIN_LED_GREEN, LOW);
         digitalWrite(PIN_LED_YELLOW, LOW);
         digitalWrite(PIN_LED_RED, HIGH);
-        tone(PIN_BUZZER, 2600);
+
+        // Start qualification timer on first cycle entering ALARM
+        if (alarmConditionStart == 0) {
+            alarmConditionStart = millis();
+            Serial.println("[ALARM] >>> Anomaly detected. Qualifying continuous persistence (30s)... <<<");
+        }
+
+        unsigned long sustainedTime = millis() - alarmConditionStart;
+
+        // Audible alarm: Only sound if anomaly has persisted continuously for 30 seconds AND not muted!
+        if (sustainedTime >= ALARM_QUALIFICATION_MS) {
+            if (alarmAcknowledged) {
+                silenceBuzzer();
+            } else {
+                soundBuzzer(2600);
+            }
+        } else {
+            silenceBuzzer(); // In qualification window: strictly silent to eliminate false alarms
+        }
     }
 
     return diag;
 }
 
 // ==========================================
-// 6. OLED GRAPHICAL DISPLAY RENDERER
+// 6. LOCAL VISUAL & AUDITORY DRIVER
+// (Headless SCADA mode — visual state handled via 3-State LEDs & live Web PWA)
 // ==========================================
 void updateOledDisplay(float turb, float tds, float temp, const WaterDiagnosis& diag) {
-    display.clearDisplay();
-
-    display.setTextSize(1);
-    display.setTextColor(SH110X_WHITE);
-    display.setCursor(0, 0);
-    display.print("JALRAKSHAK | ");
-    display.print(diag.state);
-
-    display.drawLine(0, 10, 127, 10, SH110X_WHITE);
-
-    display.setCursor(0, 14);
-    display.setTextSize(2);
-    display.print("WQI:");
-    display.print((int)diag.wqi);
-    display.setTextSize(1);
-    display.print("/100");
-
-    display.setTextSize(1);
-    display.setCursor(0, 32);
-    display.print("Turb: ");
-    display.print(turb, 1);
-    display.print(" NTU");
-
-    display.setCursor(0, 42);
-    display.print("TDS : ");
-    display.print((int)tds);
-    display.print(" ppm");
-
-    display.setCursor(0, 52);
-    display.print("Temp: ");
-    display.print(temp, 1);
-    display.print(" C  ");
-    display.print(wifiConnected ? "[Cloud OK]" : "[Offline]");
-
-    display.display();
+    // Headless telemetry mode: visual alerts rendered locally via D18(Green), D19(Yellow), D23(Red)
 }
 
 // ==========================================
@@ -252,6 +308,24 @@ void postTelemetryToCloud(float turb, float tds, float temp, const String& state
     if (httpCode > 0) {
         syncCounter++;
         Serial.printf("[Cloud Sync #%lu] HTTP %d: Telemetry Persisted in Neon Postgres\n", syncCounter, httpCode);
+
+        // Check response payload for remote cloud commands (e.g. Alarm Acknowledge / Mute from Web UI)
+        if (httpCode == 200) {
+            String resp = http.getString();
+            bool cloudMute = (resp.indexOf("\"alarm_acknowledged\":true") >= 0 || resp.indexOf("\"alarm_acknowledged\": true") >= 0);
+            if (cloudMute) {
+                if (!alarmAcknowledged) {
+                    alarmAcknowledged = true;
+                    Serial.println("\n[REMOTE CLOUD COMMAND] >>> Operator turned Buzzer OFF (Mute) from Web/Phone app! <<<");
+                }
+                silenceBuzzer();
+            } else {
+                if (alarmAcknowledged) {
+                    alarmAcknowledged = false;
+                    Serial.println("\n[REMOTE CLOUD COMMAND] >>> Operator turned Buzzer ON (Unmute) from Web/Phone app! <<<");
+                }
+            }
+        }
     } else {
         Serial.printf("[Cloud Sync] Error sending POST: %s\n", http.errorToString(httpCode).c_str());
     }
@@ -273,6 +347,11 @@ void setup() {
     pinMode(PIN_LED_YELLOW, OUTPUT);
     pinMode(PIN_LED_RED, OUTPUT);
     pinMode(PIN_BUZZER, OUTPUT);
+    digitalWrite(PIN_BUZZER, HIGH); // Off initially for active-low sink
+
+    // Configure Mute / Acknowledge Buttons (Active LOW with internal pull-ups)
+    pinMode(PIN_MUTE_BOOT_BTN, INPUT_PULLUP); // Built-in BOOT button (GPIO 0)
+    pinMode(PIN_MUTE_EXT_BTN, INPUT_PULLUP);  // External push button (GPIO 13 to GND)
 
     digitalWrite(PIN_LED_GREEN, HIGH);
     digitalWrite(PIN_LED_YELLOW, HIGH);
@@ -284,23 +363,8 @@ void setup() {
 
     tempSensors.begin();
 
-    Wire.begin(OLED_SDA, OLED_SCL);
-    bool oledOk = display.begin(0x3C, true);
-    if (!oledOk) {
-        oledOk = display.begin(0x3D, true);
-    }
-    if (!oledOk) {
-        Serial.println("[OLED] SH1106 allocation failed. Check I2C wiring (SDA=21, SCL=22).");
-    } else {
-        display.clearDisplay();
-        display.setTextSize(1);
-        display.setTextColor(SH110X_WHITE);
-        display.setCursor(10, 20);
-        display.println("JALRAKSHAK SYSTEM");
-        display.setCursor(10, 35);
-        display.println("Connecting Wi-Fi...");
-        display.display();
-    }
+    Serial.println("[Hardware] Headless Industrial Telemetry Node Active (OLED bypassed)");
+    Serial.println("[Hardware] Alert Actuators Ready: D18(Green), D19(Yellow), D23(Red), D5(Buzzer)");
 
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -324,6 +388,19 @@ void setup() {
 void loop() {
     unsigned long currentMillis = millis();
 
+    // Check Alarm Acknowledge / Mute button press (Bidirectional Toggle with 500ms debounce)
+    static unsigned long lastBtnPress = 0;
+    if ((digitalRead(PIN_MUTE_BOOT_BTN) == LOW || digitalRead(PIN_MUTE_EXT_BTN) == LOW) && (currentMillis - lastBtnPress > 500)) {
+        lastBtnPress = currentMillis;
+        alarmAcknowledged = !alarmAcknowledged;
+        if (alarmAcknowledged) {
+            Serial.println("[ALARM] >>> Operator Pressed Hardware Button: Buzzer Muted <<<");
+            silenceBuzzer();
+        } else {
+            Serial.println("[ALARM] >>> Operator Pressed Hardware Button: Buzzer Unmuted / Armed <<<");
+        }
+    }
+
     float tempC = readFluidTemp();
     float turbNtu = readTurbidity(tempC);
     float tdsPpm = readTDS(tempC);
@@ -334,8 +411,8 @@ void loop() {
     if (currentMillis - lastTelemetryTime >= TELEMETRY_INTERVAL_MS) {
         lastTelemetryTime = currentMillis;
 
-        Serial.printf("[Sensor Read] Turbidity: %.1f NTU | TDS: %.1f ppm | Temp: %.1f C | State: %s | WQI: %.0f\n",
-                      turbNtu, tdsPpm, tempC, diag.state.c_str(), diag.wqi);
+        Serial.printf("[Sensor Read] Turb: %.1f NTU (%.2fV) | TDS: %.1f ppm (%.2fV) | Temp: %.1f C | State: %s | WQI: %.0f\n",
+                      turbNtu, lastTurbVoltage, tdsPpm, lastTdsVoltage, tempC, diag.state.c_str(), diag.wqi);
 
         postTelemetryToCloud(turbNtu, tdsPpm, tempC, diag.state);
     }

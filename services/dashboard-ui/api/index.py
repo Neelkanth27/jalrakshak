@@ -13,7 +13,7 @@ import ssl
 import time
 import logging
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 import httpx
@@ -36,13 +36,13 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("jalrakshak-cloud-api")
 
+# Indian Standard Time (IST) Timezone: UTC + 5:30
+IST = timezone(timedelta(hours=5, minutes=30))
+
 # Environment & Database Configuration
 DEVICE_API_KEY = os.getenv("DEVICE_API_KEY", "jal_sec_dev_local_key").strip()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "9183317918:AAFgXyi5NLRb2dgVNvFrxMDyOQkBWioCaO4").strip()
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "6809883846").strip()
-
-_last_telegram_alert_state = None
-_last_telegram_alert_time = 0.0
 
 RAW_DB_URL = os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL") or "sqlite:////tmp/jalrakshak_cloud.db"
 
@@ -220,8 +220,8 @@ def make_telemetry_out(r: TelemetryRecord) -> TelemetryOut:
     temp = r.temp_c
     wqi = r.wqi
 
-    z_turb = max(0.0, round((turb - 2.0) / 3.0, 2))
-    z_tds = max(0.0, round((tds - 150.0) / 50.0, 2))
+    z_turb = max(0.0, round((turb - 10.0) / 15.0, 2))
+    z_tds = max(0.0, round((tds - 650.0) / 200.0, 2))
     z_temp = max(0.0, round(abs(temp - 25.0) / 2.0, 2))
     anomaly_score = round((z_turb**2 + z_tds**2)**0.5, 2)
 
@@ -235,13 +235,14 @@ def make_telemetry_out(r: TelemetryRecord) -> TelemetryOut:
         wqi_grade = "Grade D (Critical Anomaly)"
 
     state = "HIGH ANOMALY" if r.state in ["ALARM", "HIGH ANOMALY"] else r.state
-    ts = r.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+    # ISO-8601 UTC timestamp format so client Date.parse can accurately calculate node activity
+    ts_iso = r.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     is_ack = (get_setting("alarm_acknowledged", "false").lower() == "true")
 
     return TelemetryOut(
-        timestamp=ts,
-        received_at=ts,
+        timestamp=ts_iso,
+        received_at=ts_iso,
         device_id=r.device_id,
         turbidity_ntu=turb,
         tds_ppm=tds,
@@ -261,9 +262,9 @@ def make_telemetry_out(r: TelemetryRecord) -> TelemetryOut:
 # Smart WQI & Contaminant Classification Logic (BIS IS 10500:2012 + Client Tap Baseline)
 def calculate_wqi_and_signature(turbidity: float, tds: float, temp: float):
     # Generous Client-Adaptive Baseline:
-    # Standard Indian municipal/borewell tap water sits comfortably up to 650 ppm and < 10 NTU.
+    # Standard Indian municipal/borewell tap water sits comfortably up to 650 ppm and < 10-25 NTU.
     turb_score = max(0.0, (turbidity - 10.0) / 15.0)
-    tds_score = max(0.0, (tds - 650.0) / 300.0)
+    tds_score = max(0.0, (tds - 650.0) / 200.0)
     
     composite_s = (turb_score**2 + tds_score**2) ** 0.5
     wqi = max(0.0, min(100.0, round(100.0 - (composite_s * 25.0), 1)))
@@ -273,17 +274,17 @@ def calculate_wqi_and_signature(turbidity: float, tds: float, temp: float):
         signature = "Baseline / Quiescent Nominal"
     elif wqi >= 50.0:
         state = "WARNING"
-        if turbidity > 20.0 and tds <= 650.0:
-            signature = "Sediment / Pipe Erosion Signature"
-        elif tds > 650.0 and turbidity <= 20.0:
-            signature = "Chemical / Mineral Runoff"
+        if turbidity > 25.0 and tds <= 650.0:
+            signature = "Turbidity Drift / Sediments"
+        elif tds > 650.0 and turbidity <= 25.0:
+            signature = "Elevated Mineral Dissolution"
         else:
             signature = "Elevated Dissolved Solids & Turbidity"
     else:
         state = "ALARM"
-        if turbidity > 25.0 and tds > 850.0:
+        if turbidity > 35.0 and tds > 850.0:
             signature = "Severe Runoff / Surface Intrusion"
-        elif turbidity > 25.0:
+        elif turbidity > 35.0:
             signature = "Severe Sediment / Particulate Intrusion"
         elif tds > 850.0:
             signature = "Chemical / Saline Infiltration"
@@ -293,57 +294,81 @@ def calculate_wqi_and_signature(turbidity: float, tds: float, temp: float):
     return wqi, state, signature
 
 
-# Telegram Dispatch Helper with industrial persistence debouncing
-_consecutive_alarm_count = 0
-_ALARM_PERSIST_REQUIRED = 4  # Require 4 consecutive readings (~12-15s sustained) to eliminate probe movement false alarms
-
+# Telegram Dispatch Helper with industrial persistence debouncing (Continuous 30s in Postgres)
 def dispatch_telegram_alert(out: TelemetryOut):
-    global _last_telegram_alert_state, _last_telegram_alert_time, _consecutive_alarm_count
+    """
+    Industrial Alarm Qualification:
+    Telegram alerts are ONLY dispatched if the ALARM state persists continuously for at least 30.0 seconds.
+    Persisted in Postgres 'system_settings' table so Vercel Serverless cold starts never cause false triggers.
+    """
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
 
     now = time.time()
 
-    # Track consecutive alarm cycles
-    if out.state == "ALARM":
-        _consecutive_alarm_count += 1
+    if out.state in ["ALARM", "HIGH ANOMALY"]:
+        alarm_started_str = get_setting("alarm_started_at", "0")
+        try:
+            alarm_started_at = float(alarm_started_str) if alarm_started_str else 0.0
+        except ValueError:
+            alarm_started_at = 0.0
+
+        if alarm_started_at <= 0.0:
+            # First cycle entering ALARM! Start qualification timer in Neon Postgres
+            set_setting("alarm_started_at", str(now))
+            logger.info("ALARM detected. Continuous 30s qualification timer started in DB.")
+            return
+
+        elapsed = now - alarm_started_at
+        if elapsed < 30.0:
+            logger.info(f"ALARM qualification in progress ({elapsed:.1f}s / 30.0s). Holding Telegram.")
+            return
+
+        # Qualified! Has persisted >= 30.0 seconds continuously.
+        last_alert_str = get_setting("last_telegram_alert_at", "0")
+        try:
+            last_alert_at = float(last_alert_str) if last_alert_str else 0.0
+        except ValueError:
+            last_alert_at = 0.0
+
+        if (now - last_alert_at) < 300.0:
+            logger.info(f"ALARM qualified ({elapsed:.1f}s), but alert cooldown active ({now - last_alert_at:.1f}s < 300s).")
+            return
+
+        # Send Telegram alert!
+        set_setting("last_telegram_alert_at", str(now))
+
+        # Format timestamp in Indian Standard Time (IST)
+        now_ist = datetime.now(timezone.utc).astimezone(IST)
+        ist_time_str = now_ist.strftime("%d %b %Y, %I:%M:%S %p IST")
+
+        emoji = "🚨"
+        msg = (
+            f"{emoji} *JALRAKSHAK INDUSTRIAL ALERT: CRITICAL ANOMALY*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⏱ *Timestamp:* `{ist_time_str}`\n"
+            f"📊 *Water Quality Index (WQI):* `{out.wqi:.1f} / 100` ({out.wqi_grade})\n"
+            f"🔍 *Diagnosis:* *{out.contaminant_signature}*\n"
+            f"⏱ *Persistence:* `{elapsed:.0f}s continuous anomaly (30s qualified)`\n\n"
+            f"📈 *Live Telemetry:*\n"
+            f"  • Optical Turbidity: `{out.turbidity_ntu:.1f} NTU`\n"
+            f"  • Dissolved Solids (TDS): `{out.tds_ppm:.1f} ppm`\n"
+            f"  • Fluid Temperature: `{out.temp_c:.1f} °C`\n\n"
+            f"⚡ *Action:* Open live SCADA dashboard to inspect or mute buzzer:\n"
+            f"https://jalrakshak-rosy.vercel.app"
+        )
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        try:
+            httpx.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=4.0)
+            logger.info(f"Telegram alert dispatched successfully for ALARM (sustained {elapsed:.1f}s)")
+        except Exception as e:
+            logger.warning(f"Telegram dispatch failed: {e}")
     else:
-        _consecutive_alarm_count = 0
-
-    # Only dispatch if ALARM has persisted for at least _ALARM_PERSIST_REQUIRED cycles (~15s)
-    if out.state == "ALARM" and _consecutive_alarm_count < _ALARM_PERSIST_REQUIRED:
-        logger.info(f"Anomaly qualification in progress (Cycle {_consecutive_alarm_count}/{_ALARM_PERSIST_REQUIRED}). Telegram held.")
-        return
-
-    # Debounce: Alert only on sustained state transition (NORMAL -> ALARM) or every 5 minutes if persisting
-    state_changed = (out.state != _last_telegram_alert_state)
-    time_elapsed = (now - _last_telegram_alert_time) > 300.0  # 5 minutes
-
-    if not (state_changed or time_elapsed):
-        return
-
-    _last_telegram_alert_state = out.state
-    _last_telegram_alert_time = now
-
-    emoji = "🚨" if out.state == "ALARM" else "⚠️"
-    msg = (
-        f"{emoji} *JALRAKSHAK CLOUD ALERT: {out.state}*\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"⏱ *Timestamp:* `{out.timestamp}` (UTC)\n"
-        f"📊 *Water Quality Index (WQI):* `{out.wqi:.1f} / 100`\n"
-        f"🔍 *Diagnosis:* {out.contaminant_signature}\n\n"
-        f"📈 *Live Telemetry:*\n"
-        f"  • Turbidity: `{out.turbidity_ntu:.1f} NTU`\n"
-        f"  • TDS (EC25): `{out.tds_ppm:.1f} ppm`\n"
-        f"  • Temperature: `{out.temp_c:.1f} °C`\n\n"
-        f"⚡ *Action:* Open live dashboard: https://jalrakshak-rosy.vercel.app"
-    )
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    try:
-        httpx.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=4.0)
-        logger.info(f"Telegram alert dispatched successfully for state {out.state} (persisted {_consecutive_alarm_count} cycles)")
-    except Exception as e:
-        logger.warning(f"Telegram dispatch failed: {e}")
+        # State is NORMAL or WARNING (transient ripple or recovery).
+        # Any qualification timer is immediately cancelled!
+        set_setting("alarm_started_at", "0")
+        if out.state == "NORMAL":
+            set_setting("alarm_acknowledged", "false")
 
 
 # Security Header Verification
@@ -408,13 +433,15 @@ def get_latest_telemetry():
 
 @app.get("/api/telemetry/history", response_model=List[TelemetryOut])
 @app.get("/telemetry/history", response_model=List[TelemetryOut])
-def get_telemetry_history(limit: int = 50):
+def get_telemetry_history(limit: int = 50, downsample: bool = True):
     db = SessionLocal()
     try:
+        # Fetch up to 1000 records so we have ample history to downsample
+        fetch_limit = 1000 if downsample else limit
         records = (
             db.query(TelemetryRecord)
             .order_by(desc(TelemetryRecord.timestamp))
-            .limit(limit)
+            .limit(fetch_limit)
             .all()
         )
         if not records:
@@ -429,7 +456,36 @@ def get_telemetry_history(limit: int = 50):
                 contaminant_signature="Baseline / Quiescent Nominal",
             )
             return [make_telemetry_out(dummy)]
-        ordered = list(reversed(records))
+
+        if not downsample:
+            ordered = list(reversed(records[:limit]))
+            return [make_telemetry_out(r) for r in ordered]
+
+        # 2-Minute Audit Downsampling:
+        # Walk backwards from newest record. Keep the latest live reading,
+        # plus any ALARM/WARNING safety event, and normal baseline readings
+        # spaced at least 120 seconds (2 minutes) apart.
+        kept = []
+        last_kept_time = None
+
+        for r in records:
+            if last_kept_time is None:
+                # Always preserve the newest live record
+                kept.append(r)
+                last_kept_time = r.timestamp
+            else:
+                is_anomaly = (r.state in ["ALARM", "WARNING", "HIGH ANOMALY"])
+                time_diff = (last_kept_time - r.timestamp).total_seconds()
+
+                if is_anomaly or time_diff >= 120.0:
+                    kept.append(r)
+                    if not is_anomaly:
+                        last_kept_time = r.timestamp
+
+            if len(kept) >= limit:
+                break
+
+        ordered = list(reversed(kept))
         return [make_telemetry_out(r) for r in ordered]
     finally:
         db.close()
@@ -472,12 +528,8 @@ def ingest_telemetry(data: TelemetryIn):
 
     result = make_telemetry_out(record)
 
-    if state in ["WARNING", "ALARM"]:
-        dispatch_telegram_alert(result)
-    elif state == "NORMAL":
-        global _last_telegram_alert_state
-        _last_telegram_alert_state = "NORMAL"
-        set_setting("alarm_acknowledged", "false")
+    # Check 30-second continuous qualification and dispatch Telegram
+    dispatch_telegram_alert(result)
 
     return result
 

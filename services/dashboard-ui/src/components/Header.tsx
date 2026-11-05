@@ -22,6 +22,14 @@ export const Header: React.FC<HeaderProps> = ({
   onExportCsv,
 }) => {
   const getStateBadge = () => {
+    if (!isConnected) {
+      return {
+        bg: 'bg-slate-800/80 border-slate-700 text-slate-400',
+        dot: 'bg-rose-500 animate-pulse',
+        icon: Server,
+        text: 'NODE OFFLINE • UNPOWERED',
+      };
+    }
     switch (state) {
       case 'NORMAL':
         return {
@@ -102,7 +110,7 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Cloud Ingestion Pulse */}
           <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-300 font-mono">
             <span className={`h-2 w-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-rose-500 animate-pulse'}`} />
-            <span>{isConnected ? 'LIVE INGESTION (3.0s)' : 'DISCONNECTED'}</span>
+            <span>{isConnected ? 'LIVE INGESTION (3.0s)' : 'DISCONNECTED (OFFLINE)'}</span>
           </div>
 
           {/* Operational State Badge */}

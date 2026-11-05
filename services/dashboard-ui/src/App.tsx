@@ -126,7 +126,6 @@ export const App: React.FC = () => {
     fetch(getApiUrl('/telemetry/history'))
       .then((res) => {
         if (res.ok) {
-          setIsConnected(true);
           return res.json();
         }
         throw new Error('Cloud API returned non-200 status');
@@ -140,12 +139,21 @@ export const App: React.FC = () => {
           if (latest.alarm_acknowledged !== undefined) {
             setIsMuted(latest.alarm_acknowledged);
           }
+
+          // Evaluate live hardware connectivity:
+          // ESP32 posts every 3.0 seconds. If newest telemetry packet is older than 15 seconds,
+          // the physical node is unpowered / disconnected!
+          const recordTimeMs = new Date(latest.received_at).getTime();
+          const nowMs = Date.now();
+          const ageSeconds = !isNaN(recordTimeMs) ? (nowMs - recordTimeMs) / 1000 : 999;
+          const isLive = ageSeconds >= 0 && ageSeconds < 15;
+          setIsConnected(isLive);
+        } else {
+          setIsConnected(false);
         }
       })
       .catch(() => {
-        if (window.location.protocol === 'https:') {
-          setIsConnected(false);
-        }
+        setIsConnected(false);
         console.log('Waiting for telemetry stream...');
       });
   }, [getApiUrl]);
