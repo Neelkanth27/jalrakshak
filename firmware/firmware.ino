@@ -99,14 +99,18 @@ float readTurbidity(float vTemp) {
     float voltage = readAdcVoltage(PIN_TURBIDITY, 64);
     lastTurbVoltage = voltage;
     float ntu = 0.0f;
-    if (voltage < 2.5f) {
-        ntu = 3000.0f;
-    } else if (voltage >= 3.2f) {
-        ntu = 0.5f;
+    // Calibrated for 3.3V VCC supply:
+    // In clean tap water, phototransistor voltage sits around 2.1V - 2.8V (Pristine: < 1-5 NTU)
+    // In turbid/silty water, voltage drops below 2.0V
+    // In dark/slurry/blocked conditions, voltage drops below 1.0V (Severe: > 25 NTU)
+    if (voltage >= 2.1f) {
+        ntu = 0.5f + max(0.0f, (2.7f - voltage) * 2.0f);
+    } else if (voltage >= 1.2f) {
+        ntu = 5.0f + (2.1f - voltage) * (20.0f / 0.9f);
     } else {
-        ntu = (3.2f - voltage) * (3000.0f / 0.7f);
+        ntu = 25.0f + (1.2f - voltage) * (1000.0f / 1.2f);
     }
-    if (ntu < 0.0f) ntu = 0.0f;
+    if (ntu < 0.5f) ntu = 0.5f;
     if (ntu > 3000.0f) ntu = 3000.0f;
     return ntu;
 }
@@ -152,8 +156,11 @@ void soundBuzzer(unsigned int freq = 2600) {
 }
 
 WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
-    float zTurb = max(0.0f, (turb - 2.0f) / 3.0f);
-    float zTds  = max(0.0f, (tds - 150.0f) / 50.0f);
+    // BIS IS 10500:2012 Indian Drinking Water Standards:
+    // Turbidity: Desirable < 5.0 NTU, Permissible < 15.0 NTU
+    // TDS: Desirable < 500 ppm, Permissible < 2000 ppm
+    float zTurb = max(0.0f, (turb - 5.0f) / 8.0f);
+    float zTds  = max(0.0f, (tds - 500.0f) / 250.0f);
     float compositeAnomaly = sqrt(zTurb * zTurb + zTds * zTds);
 
     float wqi = max(0.0f, min(100.0f, 100.0f - (compositeAnomaly * 25.0f)));
@@ -188,9 +195,9 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
         }
     } else {
         diag.state = "ALARM";
-        if (turb > 25.0f && tds > 500.0f) {
+        if (turb > 20.0f && tds > 750.0f) {
             diag.signature = "Severe Runoff / Surface Influx";
-        } else if (turb > 25.0f) {
+        } else if (turb > 20.0f) {
             diag.signature = "Severe Sediment / Particulate Intrusion";
         } else {
             diag.signature = "Chemical / Saline Infiltration";
