@@ -1,5 +1,5 @@
 import React from 'react';
-import { Eye, Zap, Thermometer, CheckCircle2, AlertTriangle, AlertOctagon } from 'lucide-react';
+import { Eye, Zap, Thermometer } from 'lucide-react';
 import { TelemetryData } from '../types';
 
 interface MetricCardsProps {
@@ -132,7 +132,7 @@ export const MetricCards: React.FC<MetricCardsProps> = ({ telemetry }) => {
         <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
           <span className="text-[11px] text-slate-400 font-medium">Saline Matrix:</span>
           <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${tdsStatus.badge}`}>
-            {tdStatus.label}
+            {tdsStatus.label}
           </span>
         </div>
       </div>

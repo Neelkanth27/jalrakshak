@@ -1,5 +1,5 @@
 import React from 'react';
-import { Microscope, AlertTriangle, ShieldCheck, Flame, Wrench, VolumeX, Volume2, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { Microscope, AlertTriangle, ShieldCheck, Flame, Wrench, VolumeX, Volume2 } from 'lucide-react';
 import { SystemState } from '../types';
 
 interface DiagnosisBannerProps {

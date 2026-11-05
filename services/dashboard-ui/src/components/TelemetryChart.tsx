@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TrendingUp, Activity } from 'lucide-react';
+import { TrendingUp } from 'lucide-react';
 import { TelemetryData } from '../types';
 
 interface TelemetryChartProps {

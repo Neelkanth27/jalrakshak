@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Database, Search, Filter, RefreshCw, AlertTriangle, ShieldCheck, AlertOctagon, Download } from 'lucide-react';
+import { Database, Search, Filter, RefreshCw, AlertTriangle, ShieldCheck, AlertOctagon } from 'lucide-react';
 import { TelemetryData } from '../types';
 
 interface HistoryTableProps {

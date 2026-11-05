@@ -1,5 +1,5 @@
 import React from 'react';
-import { Droplets, ShieldCheck, AlertTriangle, AlertOctagon, Info } from 'lucide-react';
+import { Droplets } from 'lucide-react';
 
 interface WqiGaugeProps {
   wqi: number;
@@ -120,22 +120,28 @@ export const WqiGauge: React.FC<WqiGaugeProps> = ({
         </div>
 
         {/* Anomaly Vector Sub-Telemetry */}
-        <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-800 text-center font-mono text-xs">
-          <div className="p-1.5 rounded bg-slate-950/70 border border-slate-800/80">
-            <span className="text-[10px] text-slate-500 block">Z_Turb</span>
-            <span className={`font-semibold ${zTurb > 2.0 ? 'text-rose-400' : 'text-slate-200'}`}>
+        <div className="grid grid-cols-4 gap-1.5 pt-3 border-t border-slate-800 text-center font-mono text-xs">
+          <div className="p-1 rounded bg-slate-950/70 border border-slate-800/80">
+            <span className="text-[9px] text-slate-500 block">Z_Turb</span>
+            <span className={`text-[11px] font-semibold ${zTurb > 2.0 ? 'text-rose-400' : 'text-slate-200'}`}>
               +{zTurb.toFixed(2)}σ
             </span>
           </div>
-          <div className="p-1.5 rounded bg-slate-950/70 border border-slate-800/80">
-            <span className="text-[10px] text-slate-500 block">Z_TDS</span>
-            <span className={`font-semibold ${zTds > 2.0 ? 'text-rose-400' : 'text-slate-200'}`}>
+          <div className="p-1 rounded bg-slate-950/70 border border-slate-800/80">
+            <span className="text-[9px] text-slate-500 block">Z_TDS</span>
+            <span className={`text-[11px] font-semibold ${zTds > 2.0 ? 'text-rose-400' : 'text-slate-200'}`}>
               +{zTds.toFixed(2)}σ
             </span>
           </div>
-          <div className="p-1.5 rounded bg-slate-950/70 border border-slate-800/80">
-            <span className="text-[10px] text-slate-500 block">S_comp</span>
-            <span className={`font-semibold ${anomalyScore > 2.0 ? 'text-rose-400' : 'text-slate-200'}`}>
+          <div className="p-1 rounded bg-slate-950/70 border border-slate-800/80">
+            <span className="text-[9px] text-slate-500 block">Z_Temp</span>
+            <span className={`text-[11px] font-semibold ${zTemp > 2.0 ? 'text-rose-400' : 'text-slate-200'}`}>
+              +{zTemp.toFixed(2)}σ
+            </span>
+          </div>
+          <div className="p-1 rounded bg-slate-950/70 border border-slate-800/80">
+            <span className="text-[9px] text-slate-500 block">S_comp</span>
+            <span className={`text-[11px] font-semibold ${anomalyScore > 2.0 ? 'text-rose-400' : 'text-slate-200'}`}>
               {anomalyScore.toFixed(2)}
             </span>
           </div>
