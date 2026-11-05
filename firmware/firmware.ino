@@ -98,13 +98,25 @@ float lastTdsVoltage = 0.0f;
 // Exponential Moving Average (EMA) filters to prevent rapid LED flickering from liquid ripples or bubbles
 static float smoothTurbVoltage = -1.0f;
 static float smoothTdsVoltage  = -1.0f;
+static int rawTurbAdc = 0;
+static int rawTdsAdc = 0;
+static float rawTurbVolts = 0.0f;
+static float rawTdsVolts = 0.0f;
 
 float readTurbidity(float vTemp) {
-    float rawVoltage = readAdcVoltage(PIN_TURBIDITY, 64);
+    long sum = 0;
+    for (int i = 0; i < 64; i++) {
+        sum += analogRead(PIN_TURBIDITY);
+        delayMicroseconds(100);
+    }
+    rawTurbAdc = sum / 64;
+    rawTurbVolts = (rawTurbAdc / 4095.0f) * 3.3f;
+
+    // Fast 50% response filter:
     if (smoothTurbVoltage < 0.0f) {
-        smoothTurbVoltage = rawVoltage;
+        smoothTurbVoltage = rawTurbVolts;
     } else {
-        smoothTurbVoltage = (0.15f * rawVoltage) + (0.85f * smoothTurbVoltage);
+        smoothTurbVoltage = (0.50f * rawTurbVolts) + (0.50f * smoothTurbVoltage);
     }
     lastTurbVoltage = smoothTurbVoltage;
 
@@ -125,11 +137,19 @@ float readTurbidity(float vTemp) {
 }
 
 float readTDS(float temperatureC) {
-    float rawVoltage = readAdcVoltage(PIN_TDS, 64);
+    long sum = 0;
+    for (int i = 0; i < 64; i++) {
+        sum += analogRead(PIN_TDS);
+        delayMicroseconds(100);
+    }
+    rawTdsAdc = sum / 64;
+    rawTdsVolts = (rawTdsAdc / 4095.0f) * 3.3f;
+
+    // Fast 50% response filter:
     if (smoothTdsVoltage < 0.0f) {
-        smoothTdsVoltage = rawVoltage;
+        smoothTdsVoltage = rawTdsVolts;
     } else {
-        smoothTdsVoltage = (0.15f * rawVoltage) + (0.85f * smoothTdsVoltage);
+        smoothTdsVoltage = (0.50f * rawTdsVolts) + (0.50f * smoothTdsVoltage);
     }
     lastTdsVoltage = smoothTdsVoltage;
 
@@ -411,8 +431,8 @@ void loop() {
     if (currentMillis - lastTelemetryTime >= TELEMETRY_INTERVAL_MS) {
         lastTelemetryTime = currentMillis;
 
-        Serial.printf("[Sensor Read] Turb: %.1f NTU (%.2fV) | TDS: %.1f ppm (%.2fV) | Temp: %.1f C | State: %s | WQI: %.0f\n",
-                      turbNtu, lastTurbVoltage, tdsPpm, lastTdsVoltage, tempC, diag.state.c_str(), diag.wqi);
+        Serial.printf("[Sensor Read] Turb: %.1f NTU (Raw: %.2fV | ADC: %d) | TDS: %.1f ppm (Raw: %.2fV | ADC: %d) | Temp: %.1f C | State: %s | WQI: %.0f\n",
+                      turbNtu, rawTurbVolts, rawTurbAdc, tdsPpm, rawTdsVolts, rawTdsAdc, tempC, diag.state.c_str(), diag.wqi);
 
         postTelemetryToCloud(turbNtu, tdsPpm, tempC, diag.state);
     }
