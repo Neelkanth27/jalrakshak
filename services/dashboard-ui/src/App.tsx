@@ -10,18 +10,18 @@ import { generateInspectionCertificate } from './utils/pdfGenerator';
 import { TelemetryData } from './types';
 
 const INITIAL_TELEMETRY: TelemetryData = {
-  turbidity_ntu: 6.2,
-  tds_ppm: 185.0,
+  turbidity_ntu: 1.8,
+  tds_ppm: 195.0,
   temp_c: 24.8,
-  z_turb: 0.2,
-  z_tds: 0.3,
+  z_turb: 0.1,
+  z_tds: 0.2,
   z_temp: 0.1,
-  anomaly_score: 0.35,
+  anomaly_score: 0.22,
   state: 'NORMAL',
-  device_id: 'jalrakshak-edge-01',
-  wqi: 91.2,
+  device_id: 'ESP32_JALRAKSHAK_01',
+  wqi: 94.5,
   wqi_grade: 'Grade A (Pristine Baseline)',
-  contaminant_signature: 'Baseline Stable: Water parameters within normal quiescent bounds.',
+  contaminant_signature: 'Nominal Quiescent Baseline',
   received_at: new Date().toISOString(),
 };
 
@@ -62,7 +62,7 @@ const normalizeTelemetry = (raw: any): TelemetryData => {
     device_id: raw.device_id || 'ESP32_JALRAKSHAK_01',
     wqi: Number(wqi.toFixed(1)),
     wqi_grade: wqi_grade,
-    contaminant_signature: raw.contaminant_signature || 'Baseline Stable: Water parameters within nominal bounds.',
+    contaminant_signature: raw.contaminant_signature || 'Nominal Quiescent Baseline',
     received_at: raw.received_at || raw.timestamp || new Date().toISOString(),
     alarm_acknowledged: Boolean(raw.alarm_acknowledged),
   };
@@ -82,7 +82,6 @@ export const App: React.FC = () => {
     }
     const apiHost = window.location.hostname || 'localhost';
     const isHttps = window.location.protocol === 'https:';
-    // If on https (e.g. Vercel), route directly to serverless /api prefix
     if (isHttps) {
       return `/api${path}`;
     }
@@ -151,7 +150,45 @@ export const App: React.FC = () => {
       });
   }, [getApiUrl]);
 
-  // Setup WebSocket connection and initial history fetch
+  const handleExportCsv = useCallback(() => {
+    if (!history || history.length === 0) return;
+    const headers = [
+      'Timestamp (ISO)',
+      'Device ID',
+      'Water Quality Index (WQI)',
+      'Grade',
+      'Operational State',
+      'Turbidity (NTU)',
+      'TDS (ppm)',
+      'Temperature (C)',
+      'Anomaly Score (S_comp)',
+      'Contaminant Diagnosis',
+    ];
+
+    const rows = history.map((r) => [
+      `"${r.received_at}"`,
+      `"${r.device_id}"`,
+      r.wqi,
+      `"${r.wqi_grade}"`,
+      `"${r.state}"`,
+      r.turbidity_ntu,
+      r.tds_ppm,
+      r.temp_c,
+      r.anomaly_score,
+      `"${(r.contaminant_signature || '').replace(/"/g, '""')}"`,
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `jalrakshak_telemetry_audit_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [history]);
+
   useEffect(() => {
     fetchHistory();
 
@@ -161,7 +198,6 @@ export const App: React.FC = () => {
     let pollingInterval: ReturnType<typeof setInterval>;
 
     const connectWebSocket = () => {
-      // In cloud HTTPS environments without WebSockets, rely on HTTP polling
       if (window.location.protocol === 'https:' && !import.meta.env.VITE_WS_URL) {
         return;
       }
@@ -201,10 +237,9 @@ export const App: React.FC = () => {
 
     connectWebSocket();
 
-    // Fallback periodic poll to ensure live updates across both HTTP and HTTPS cloud environments
     pollingInterval = setInterval(() => {
       fetchHistory();
-    }, 4000);
+    }, 3000);
 
     return () => {
       clearTimeout(reconnectTimer);
@@ -214,18 +249,21 @@ export const App: React.FC = () => {
   }, [fetchHistory, getWsUrl]);
 
   return (
-    <div className="min-h-screen bg-[#0B0F19] text-gray-100 flex flex-col font-sans">
-      {/* Top Header */}
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+      {/* SCADA Station Top Header */}
       <Header
         state={telemetry.state}
         isConnected={isConnected}
+        isMuted={isMuted || telemetry.alarm_acknowledged}
+        onToggleMute={handleAcknowledgeAlarm}
         onOpenTelegram={() => setIsTelegramModalOpen(true)}
         onExportReport={() => generateInspectionCertificate(telemetry)}
+        onExportCsv={handleExportCsv}
       />
 
-      {/* Main Content Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
-        {/* Top Section: Smart Contaminant Diagnosis Banner with Remote Mute Action */}
+      {/* Main SCADA Telemetry Console */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-5">
+        {/* Top: Contaminant Diagnosis & Regulatory Compliance Banner */}
         <DiagnosisBanner
           signature={telemetry.contaminant_signature}
           state={telemetry.state}
@@ -233,13 +271,16 @@ export const App: React.FC = () => {
           onAcknowledgeAlarm={handleAcknowledgeAlarm}
         />
 
-        {/* Core Analytics Grid: Circular WQI Gauge + Trend Chart */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Analytics Grid: Industrial WQI Dial + Parameter Trend Analyzer */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           <div className="lg:col-span-1">
             <WqiGauge
               wqi={telemetry.wqi}
               grade={telemetry.wqi_grade}
               anomalyScore={telemetry.anomaly_score}
+              zTurb={telemetry.z_turb}
+              zTds={telemetry.z_tds}
+              zTemp={telemetry.z_temp}
             />
           </div>
           <div className="lg:col-span-2">
@@ -247,25 +288,27 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Physical Sensor Metric Cards */}
+        {/* Physical Sensor Instrumentation Telemetry Cards */}
         <MetricCards telemetry={telemetry} />
 
-        {/* Historical Telemetry & Audit Log Table (Placed cleanly at the bottom) */}
-        <HistoryTable history={history} onRefresh={fetchHistory} />
+        {/* Historical Telemetry & Audit Trail Log */}
+        <HistoryTable
+          history={history}
+          onRefresh={fetchHistory}
+          onExportCsv={handleExportCsv}
+        />
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-gray-900 bg-[#070A12] py-4 text-center text-xs text-gray-500">
-        JalRakshak Multi-Sensor Anomaly Detection System • Powered by ESP32 Edge Computing, Mosquitto MQTT & FastAPI
-      </footer>
-
-      {/* Telegram Connection QR Modal */}
+      {/* Incident Alert Dispatcher Modal (Clean, Zero-QR) */}
       <TelegramModal
         isOpen={isTelegramModalOpen}
         onClose={() => setIsTelegramModalOpen(false)}
       />
+
+      {/* Industrial SCADA Footer */}
+      <footer className="border-t border-slate-900 bg-slate-950 py-3.5 px-6 text-center text-xs text-slate-500 font-mono">
+        JALRAKSHAK SCADA TELEMETRY • STATION: STN-MH-PUNE-01 • CONTROLLER: ESP32-WROOM-32 (FreeRTOS) • COMPLIANCE: BIS IS 10500:2012
+      </footer>
     </div>
   );
 };
-
-export default App;
