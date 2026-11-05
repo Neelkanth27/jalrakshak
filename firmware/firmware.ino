@@ -93,6 +93,7 @@ float readAdcVoltage(int pin, int samples = 64) {
 }
 
 float lastTurbVoltage = 0.0f;
+float lastTdsVoltage = 0.0f;
 
 float readTurbidity(float vTemp) {
     float voltage = readAdcVoltage(PIN_TURBIDITY, 64);
@@ -112,6 +113,7 @@ float readTurbidity(float vTemp) {
 
 float readTDS(float temperatureC) {
     float voltage = readAdcVoltage(PIN_TDS, 64);
+    lastTdsVoltage = voltage;
     float compensationCoefficient = 1.0f + 0.02f * (temperatureC - 25.0f);
     float compensationVoltage = voltage / compensationCoefficient;
 
@@ -553,8 +555,8 @@ void loop() {
     if (currentMillis - lastTelemetryTime >= TELEMETRY_INTERVAL_MS) {
         lastTelemetryTime = currentMillis;
 
-        Serial.printf("[Sensor Read] Turbidity: %.1f NTU (Raw: %.2fV) | TDS: %.1f ppm | Temp: %.1f C | State: %s | WQI: %.0f\n",
-                      turbNtu, lastTurbVoltage, tdsPpm, tempC, diag.state.c_str(), diag.wqi);
+        Serial.printf("[Sensor Read] Turb: %.1f NTU (%.2fV) | TDS: %.1f ppm (%.2fV) | Temp: %.1f C | State: %s | WQI: %.0f\n",
+                      turbNtu, lastTurbVoltage, tdsPpm, lastTdsVoltage, tempC, diag.state.c_str(), diag.wqi);
 
         postTelemetryToCloud(turbNtu, tdsPpm, tempC, diag.state);
     }
