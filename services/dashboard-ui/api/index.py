@@ -258,10 +258,12 @@ def make_telemetry_out(r: TelemetryRecord) -> TelemetryOut:
     )
 
 
-# Smart WQI & Contaminant Classification Logic
+# Smart WQI & Contaminant Classification Logic (BIS IS 10500:2012 + Client Tap Baseline)
 def calculate_wqi_and_signature(turbidity: float, tds: float, temp: float):
-    turb_score = max(0.0, (turbidity - 2.0) / 13.0)
-    tds_score = max(0.0, (tds - 150.0) / 350.0)
+    # Generous Client-Adaptive Baseline:
+    # Standard Indian municipal/borewell tap water sits comfortably up to 650 ppm and < 10 NTU.
+    turb_score = max(0.0, (turbidity - 10.0) / 15.0)
+    tds_score = max(0.0, (tds - 650.0) / 300.0)
     
     composite_s = (turb_score**2 + tds_score**2) ** 0.5
     wqi = max(0.0, min(100.0, round(100.0 - (composite_s * 25.0), 1)))
@@ -271,19 +273,19 @@ def calculate_wqi_and_signature(turbidity: float, tds: float, temp: float):
         signature = "Baseline / Quiescent Nominal"
     elif wqi >= 50.0:
         state = "WARNING"
-        if turbidity > 15.0 and tds <= 300.0:
+        if turbidity > 20.0 and tds <= 650.0:
             signature = "Sediment / Pipe Erosion Signature"
-        elif tds > 300.0 and turbidity <= 15.0:
+        elif tds > 650.0 and turbidity <= 20.0:
             signature = "Chemical / Mineral Runoff"
         else:
             signature = "Elevated Dissolved Solids & Turbidity"
     else:
         state = "ALARM"
-        if turbidity > 25.0 and tds > 500.0:
+        if turbidity > 25.0 and tds > 850.0:
             signature = "Severe Runoff / Surface Intrusion"
         elif turbidity > 25.0:
             signature = "Severe Sediment / Particulate Intrusion"
-        elif tds > 500.0:
+        elif tds > 850.0:
             signature = "Chemical / Saline Infiltration"
         else:
             signature = "Multi-Parameter Critical Contamination"
@@ -291,14 +293,29 @@ def calculate_wqi_and_signature(turbidity: float, tds: float, temp: float):
     return wqi, state, signature
 
 
-# Telegram Dispatch Helper with intelligent debouncing
+# Telegram Dispatch Helper with industrial persistence debouncing
+_consecutive_alarm_count = 0
+_ALARM_PERSIST_REQUIRED = 4  # Require 4 consecutive readings (~12-15s sustained) to eliminate probe movement false alarms
+
 def dispatch_telegram_alert(out: TelemetryOut):
-    global _last_telegram_alert_state, _last_telegram_alert_time
+    global _last_telegram_alert_state, _last_telegram_alert_time, _consecutive_alarm_count
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
 
     now = time.time()
-    # Debounce: Alert only on state transition (e.g. NORMAL -> WARNING/ALARM) or every 5 minutes if persisting
+
+    # Track consecutive alarm cycles
+    if out.state == "ALARM":
+        _consecutive_alarm_count += 1
+    else:
+        _consecutive_alarm_count = 0
+
+    # Only dispatch if ALARM has persisted for at least _ALARM_PERSIST_REQUIRED cycles (~15s)
+    if out.state == "ALARM" and _consecutive_alarm_count < _ALARM_PERSIST_REQUIRED:
+        logger.info(f"Anomaly qualification in progress (Cycle {_consecutive_alarm_count}/{_ALARM_PERSIST_REQUIRED}). Telegram held.")
+        return
+
+    # Debounce: Alert only on sustained state transition (NORMAL -> ALARM) or every 5 minutes if persisting
     state_changed = (out.state != _last_telegram_alert_state)
     time_elapsed = (now - _last_telegram_alert_time) > 300.0  # 5 minutes
 
@@ -324,7 +341,7 @@ def dispatch_telegram_alert(out: TelemetryOut):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     try:
         httpx.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=4.0)
-        logger.info(f"Telegram alert dispatched successfully for state {out.state}")
+        logger.info(f"Telegram alert dispatched successfully for state {out.state} (persisted {_consecutive_alarm_count} cycles)")
     except Exception as e:
         logger.warning(f"Telegram dispatch failed: {e}")
 

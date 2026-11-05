@@ -171,15 +171,17 @@ void soundBuzzer(unsigned int freq = 2600) {
     tone(PIN_BUZZER, freq);
 }
 
-// Industrial SCADA State Machine with Schmitt-Trigger Hysteresis
+// Industrial SCADA State Machine with Schmitt-Trigger Hysteresis & Persistence Qualification
 static String systemState = "NORMAL";
+static unsigned long alarmConditionStart = 0;
+const unsigned long ALARM_QUALIFICATION_MS = 15000; // 15 seconds of sustained anomaly required to trigger loud buzzer
 
 WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
-    // Bench Baseline & BIS IS 10500:2012 Drinking Water Calibration:
-    // Turbidity: Clean Baseline < 8.0 NTU, Silt/Soil Anomaly > 20.0 NTU
-    // TDS: Clean Tap Water < 550 ppm, Saline Anomaly > 800 ppm
-    float zTurb = max(0.0f, (turb - 8.0f) / 8.0f);
-    float zTds  = max(0.0f, (tds - 550.0f) / 200.0f);
+    // Bench Baseline & Client-Adaptive BIS IS 10500:2012 Drinking Water Calibration:
+    // Turbidity: Clean Baseline < 10.0 NTU, Silt/Soil Anomaly > 25.0 NTU
+    // TDS: Clean Tap Water < 650 ppm, Saline Anomaly > 850 ppm
+    float zTurb = max(0.0f, (turb - 10.0f) / 10.0f);
+    float zTds  = max(0.0f, (tds - 650.0f) / 250.0f);
     float compositeAnomaly = sqrt(zTurb * zTurb + zTds * zTds);
 
     float wqi = max(0.0f, min(100.0f, 100.0f - (compositeAnomaly * 25.0f)));
@@ -210,6 +212,7 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
     diag.state = systemState;
 
     if (systemState == "NORMAL") {
+        alarmConditionStart = 0; // Reset qualification timer immediately
         diag.signature = "Baseline / Pristine Quiescent";
         digitalWrite(PIN_LED_GREEN, HIGH);
         digitalWrite(PIN_LED_YELLOW, LOW);
@@ -220,22 +223,16 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
         }
         silenceBuzzer();
     } else if (systemState == "WARNING") {
+        alarmConditionStart = 0; // Reset qualification timer
         diag.signature = (turb > 10.0f) ? "Turbidity Drift / Sediments" : "Elevated Mineral Dissolution";
         digitalWrite(PIN_LED_GREEN, LOW);
         digitalWrite(PIN_LED_YELLOW, HIGH);
         digitalWrite(PIN_LED_RED, LOW);
-        // Intermittent warning pulse (unless muted)
-        if (alarmAcknowledged) {
-            silenceBuzzer();
-        } else if (millis() % 1000 < 200) {
-            soundBuzzer(2000);
-        } else {
-            silenceBuzzer();
-        }
+        silenceBuzzer(); // Warning is purely visual (Yellow LED) to keep workspace quiet
     } else {
-        if (turb > 20.0f && tds > 750.0f) {
+        if (turb > 25.0f && tds > 800.0f) {
             diag.signature = "Severe Runoff / Surface Influx";
-        } else if (turb > 20.0f) {
+        } else if (turb > 25.0f) {
             diag.signature = "Severe Sediment / Particulate Intrusion";
         } else {
             diag.signature = "Chemical / Saline Infiltration";
@@ -244,11 +241,23 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
         digitalWrite(PIN_LED_YELLOW, LOW);
         digitalWrite(PIN_LED_RED, HIGH);
 
-        // Audible alarm: Silence if acknowledged/muted by operator, otherwise sound loudly
-        if (alarmAcknowledged) {
-            silenceBuzzer();
+        // Start qualification timer on first cycle entering ALARM
+        if (alarmConditionStart == 0) {
+            alarmConditionStart = millis();
+            Serial.println("[ALARM] >>> Anomaly detected. Qualifying persistence (15s)... <<<");
+        }
+
+        unsigned long sustainedTime = millis() - alarmConditionStart;
+
+        // Audible alarm: Only sound if anomaly has persisted beyond 15 seconds AND not muted!
+        if (sustainedTime >= ALARM_QUALIFICATION_MS) {
+            if (alarmAcknowledged) {
+                silenceBuzzer();
+            } else {
+                soundBuzzer(2600);
+            }
         } else {
-            soundBuzzer(2600);
+            silenceBuzzer(); // In qualification window (silent to prevent false alarms from brief bumps)
         }
     }
 
