@@ -369,13 +369,13 @@ void postTelemetryToCloud(float turb, float tds, float temp, const String& state
             if (cloudMute) {
                 if (!alarmAcknowledged) {
                     alarmAcknowledged = true;
-                    Serial.println("\n[REMOTE CLOUD COMMAND] >>> Operator pressed MUTE on Web/Phone app! Buzzer Silenced. <<<");
+                    Serial.println("\n[REMOTE CLOUD COMMAND] >>> Operator turned Buzzer OFF (Mute) from Web/Phone app! <<<");
                 }
                 silenceBuzzer();
-            } else if (resp.indexOf("\"alarm_acknowledged\":false") >= 0 || resp.indexOf("\"alarm_acknowledged\": false") >= 0) {
-                if (alarmAcknowledged && state == "NORMAL") {
+            } else {
+                if (alarmAcknowledged) {
                     alarmAcknowledged = false;
-                    Serial.println("[REMOTE CLOUD] Water quality normal. Alarm reset.");
+                    Serial.println("\n[REMOTE CLOUD COMMAND] >>> Operator turned Buzzer ON (Unmute) from Web/Phone app! <<<");
                 }
             }
         }

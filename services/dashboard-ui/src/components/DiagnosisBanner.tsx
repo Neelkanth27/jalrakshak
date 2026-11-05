@@ -1,5 +1,5 @@
 import React from 'react';
-import { Microscope, AlertTriangle, ShieldCheck, Flame, Wrench, VolumeX, CheckCircle } from 'lucide-react';
+import { Microscope, AlertTriangle, ShieldCheck, Flame, Wrench, VolumeX, Volume2, CheckCircle } from 'lucide-react';
 import { SystemState } from '../types';
 
 interface DiagnosisBannerProps {
@@ -79,17 +79,22 @@ export const DiagnosisBanner: React.FC<DiagnosisBannerProps> = ({ signature, sta
             {isAlarmOrWarning && onAcknowledgeAlarm && (
               <div className="shrink-0">
                 {isMuted ? (
-                  <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-semibold shadow-inner">
-                    <CheckCircle className="h-4 w-4 text-emerald-400" />
-                    Alarm Acknowledged (Buzzer Muted)
-                  </div>
+                  <button
+                    onClick={onAcknowledgeAlarm}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 rounded-xl text-xs font-bold shadow-lg shadow-emerald-950/40 transition-all active:scale-95 cursor-pointer"
+                    title="Click to turn buzzer back on"
+                  >
+                    <Volume2 className="h-4 w-4 text-emerald-400" />
+                    Buzzer Muted (Click to Turn ON)
+                  </button>
                 ) : (
                   <button
                     onClick={onAcknowledgeAlarm}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-950/50 hover:shadow-rose-900/60 transition-all active:scale-95 animate-pulse cursor-pointer border border-rose-400/30"
+                    title="Click to mute buzzer"
                   >
                     <VolumeX className="h-4 w-4" />
-                    Acknowledge & Mute Buzzer
+                    Turn Buzzer OFF (Mute)
                   </button>
                 )}
               </div>

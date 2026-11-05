@@ -90,16 +90,30 @@ export const App: React.FC = () => {
   }, []);
 
   const handleAcknowledgeAlarm = useCallback(() => {
-    setIsMuted(true);
-    fetch(getApiUrl('/telemetry/acknowledge'), { method: 'POST' })
-      .then((res) => res.json())
-      .then((data) => {
-        console.log('Alarm acknowledged successfully:', data);
-      })
-      .catch((err) => {
-        console.error('Failed to acknowledge alarm:', err);
-      });
-  }, [getApiUrl]);
+    if (isMuted) {
+      // Toggle back ON: Unmute / Re-arm Buzzer
+      setIsMuted(false);
+      fetch(getApiUrl('/telemetry/reset-alarm'), { method: 'POST' })
+        .then((res) => res.json())
+        .then((data) => {
+          console.log('Buzzer unmuted / re-armed:', data);
+        })
+        .catch((err) => {
+          console.error('Failed to unmute buzzer:', err);
+        });
+    } else {
+      // Toggle OFF: Mute / Acknowledge Buzzer
+      setIsMuted(true);
+      fetch(getApiUrl('/telemetry/acknowledge'), { method: 'POST' })
+        .then((res) => res.json())
+        .then((data) => {
+          console.log('Alarm acknowledged / muted:', data);
+        })
+        .catch((err) => {
+          console.error('Failed to acknowledge alarm:', err);
+        });
+    }
+  }, [isMuted, getApiUrl]);
 
   const getWsUrl = useCallback(() => {
     const customWs = import.meta.env.VITE_WS_URL;
@@ -122,7 +136,11 @@ export const App: React.FC = () => {
         if (data && data.length > 0) {
           const normalized = data.map(normalizeTelemetry);
           setHistory(normalized);
-          setTelemetry(normalized[normalized.length - 1]);
+          const latest = normalized[normalized.length - 1];
+          setTelemetry(latest);
+          if (latest.alarm_acknowledged !== undefined) {
+            setIsMuted(latest.alarm_acknowledged);
+          }
         }
       })
       .catch(() => {
