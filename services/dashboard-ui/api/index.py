@@ -76,6 +76,14 @@ class AnomalyEvent(Base):
     diagnostics = Column(Text, nullable=True)
 
 
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+
+    key = Column(String(64), primary_key=True)
+    value = Column(String(256), nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 ACTIVE_DB_TYPE = "SQLite (/tmp)"
 
 
@@ -170,6 +178,42 @@ class TelemetryOut(BaseModel):
 _alarm_acknowledged = False
 
 
+def set_setting(key: str, val: str):
+    global _alarm_acknowledged
+    if key == "alarm_acknowledged":
+        _alarm_acknowledged = (val.lower() == "true")
+    try:
+        db = SessionLocal()
+        s = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+        if not s:
+            s = SystemSetting(key=key, value=val)
+            db.add(s)
+        else:
+            s.value = val
+            s.updated_at = datetime.utcnow()
+        db.commit()
+        db.close()
+    except Exception as e:
+        logger.warning(f"Could not persist setting {key}: {e}")
+
+
+def get_setting(key: str, default: str = "") -> str:
+    global _alarm_acknowledged
+    try:
+        db = SessionLocal()
+        s = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+        db.close()
+        if s:
+            if key == "alarm_acknowledged":
+                _alarm_acknowledged = (s.value.lower() == "true")
+            return s.value
+    except Exception as e:
+        logger.warning(f"Could not load setting {key}: {e}")
+    if key == "alarm_acknowledged":
+        return "true" if _alarm_acknowledged else "false"
+    return default
+
+
 def make_telemetry_out(r: TelemetryRecord) -> TelemetryOut:
     turb = r.turbidity_ntu
     tds = r.tds_ppm
@@ -193,6 +237,8 @@ def make_telemetry_out(r: TelemetryRecord) -> TelemetryOut:
     state = "HIGH ANOMALY" if r.state in ["ALARM", "HIGH ANOMALY"] else r.state
     ts = r.timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
+    is_ack = (get_setting("alarm_acknowledged", "false").lower() == "true")
+
     return TelemetryOut(
         timestamp=ts,
         received_at=ts,
@@ -208,7 +254,7 @@ def make_telemetry_out(r: TelemetryRecord) -> TelemetryOut:
         z_temp=z_temp,
         state=state,
         contaminant_signature=r.contaminant_signature or "Baseline / Quiescent Nominal",
-        alarm_acknowledged=_alarm_acknowledged,
+        alarm_acknowledged=is_ack,
     )
 
 
@@ -412,9 +458,9 @@ def ingest_telemetry(data: TelemetryIn):
     if state in ["WARNING", "ALARM"]:
         dispatch_telegram_alert(result)
     elif state == "NORMAL":
-        global _last_telegram_alert_state, _alarm_acknowledged
+        global _last_telegram_alert_state
         _last_telegram_alert_state = "NORMAL"
-        _alarm_acknowledged = False
+        set_setting("alarm_acknowledged", "false")
 
     return result
 
@@ -422,9 +468,8 @@ def ingest_telemetry(data: TelemetryIn):
 @app.post("/api/telemetry/acknowledge")
 @app.post("/telemetry/acknowledge")
 def acknowledge_alarm():
-    global _alarm_acknowledged
-    _alarm_acknowledged = True
-    logger.info("Operator acknowledged alarm via Web UI. Buzzer mute armed for ESP32.")
+    set_setting("alarm_acknowledged", "true")
+    logger.info("Operator acknowledged alarm via Web UI. Buzzer mute armed for ESP32 in DB.")
     return {
         "status": "ok",
         "alarm_acknowledged": True,
@@ -435,9 +480,8 @@ def acknowledge_alarm():
 @app.post("/api/telemetry/reset-alarm")
 @app.post("/telemetry/reset-alarm")
 def reset_alarm_acknowledgment():
-    global _alarm_acknowledged
-    _alarm_acknowledged = False
-    logger.info("Alarm acknowledge state manually reset.")
+    set_setting("alarm_acknowledged", "false")
+    logger.info("Alarm acknowledge state manually reset in DB.")
     return {
         "status": "ok",
         "alarm_acknowledged": False,

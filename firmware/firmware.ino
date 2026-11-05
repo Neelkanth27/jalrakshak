@@ -131,8 +131,21 @@ float readFluidTemp() {
 }
 
 // ==========================================
-// 5. LOCAL ANOMALY CLASSIFICATION
+// 5. LOCAL ANOMALY CLASSIFICATION & BUZZER DRIVER
 // ==========================================
+void silenceBuzzer() {
+    noTone(PIN_BUZZER);
+    pinMode(PIN_BUZZER, OUTPUT);
+    digitalWrite(PIN_BUZZER, HIGH); // Logic HIGH stops active-low sink
+    pinMode(PIN_BUZZER, INPUT);     // High-Z disconnects ground sink completely
+}
+
+void soundBuzzer(unsigned int freq = 2600) {
+    pinMode(PIN_BUZZER, OUTPUT);
+    digitalWrite(PIN_BUZZER, LOW);  // Active-low sink: 0V draws current from VIN (5V)
+    tone(PIN_BUZZER, freq);
+}
+
 WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
     float zTurb = max(0.0f, (turb - 2.0f) / 3.0f);
     float zTds  = max(0.0f, (tds - 150.0f) / 50.0f);
@@ -153,8 +166,7 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
             alarmAcknowledged = false;
             Serial.println("[ALARM] Water quality normalized. Mute latch reset.");
         }
-        noTone(PIN_BUZZER);
-        digitalWrite(PIN_BUZZER, HIGH); // Off for active-low sink
+        silenceBuzzer();
     } else if (compositeAnomaly < 2.0f) {
         diag.state = "WARNING";
         diag.signature = (turb > 10.0f) ? "Turbidity Drift / Sediments" : "Elevated Mineral Dissolution";
@@ -163,14 +175,11 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
         digitalWrite(PIN_LED_RED, LOW);
         // Intermittent warning pulse (unless muted)
         if (alarmAcknowledged) {
-            noTone(PIN_BUZZER);
-            digitalWrite(PIN_BUZZER, HIGH);
+            silenceBuzzer();
         } else if (millis() % 1000 < 200) {
-            tone(PIN_BUZZER, 2000);
-            digitalWrite(PIN_BUZZER, LOW);
+            soundBuzzer(2000);
         } else {
-            noTone(PIN_BUZZER);
-            digitalWrite(PIN_BUZZER, HIGH);
+            silenceBuzzer();
         }
     } else {
         diag.state = "ALARM";
@@ -187,11 +196,9 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
 
         // Audible alarm: Silence if acknowledged/muted by operator, otherwise sound loudly
         if (alarmAcknowledged) {
-            noTone(PIN_BUZZER);
-            digitalWrite(PIN_BUZZER, HIGH); // Muted by operator
+            silenceBuzzer();
         } else {
-            tone(PIN_BUZZER, 2600);
-            digitalWrite(PIN_BUZZER, LOW);  // Active-low buzzer sound
+            soundBuzzer(2600);
         }
     }
 
@@ -358,15 +365,17 @@ void postTelemetryToCloud(float turb, float tds, float temp, const String& state
         // Check response payload for remote cloud commands (e.g. Alarm Acknowledge / Mute from Web UI)
         if (httpCode == 200) {
             String resp = http.getString();
-            StaticJsonDocument<512> respDoc;
-            DeserializationError err = deserializeJson(respDoc, resp);
-            if (!err && respDoc.containsKey("alarm_acknowledged")) {
-                bool cloudMuted = respDoc["alarm_acknowledged"];
-                if (cloudMuted && !alarmAcknowledged) {
+            bool cloudMute = (resp.indexOf("\"alarm_acknowledged\":true") >= 0 || resp.indexOf("\"alarm_acknowledged\": true") >= 0);
+            if (cloudMute) {
+                if (!alarmAcknowledged) {
                     alarmAcknowledged = true;
-                    Serial.println("[REMOTE CLOUD COMMAND] >>> Operator pressed MUTE on Web/Phone app! Buzzer Silenced. <<<");
-                } else if (!cloudMuted && alarmAcknowledged && state == "NORMAL") {
+                    Serial.println("\n[REMOTE CLOUD COMMAND] >>> Operator pressed MUTE on Web/Phone app! Buzzer Silenced. <<<");
+                }
+                silenceBuzzer();
+            } else if (resp.indexOf("\"alarm_acknowledged\":false") >= 0 || resp.indexOf("\"alarm_acknowledged\": false") >= 0) {
+                if (alarmAcknowledged && state == "NORMAL") {
                     alarmAcknowledged = false;
+                    Serial.println("[REMOTE CLOUD] Water quality normal. Alarm reset.");
                 }
             }
         }
