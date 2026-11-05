@@ -527,11 +527,16 @@ void setup() {
 void loop() {
     unsigned long currentMillis = millis();
 
-    // Check Alarm Acknowledge / Mute button press
-    if (digitalRead(PIN_MUTE_BOOT_BTN) == LOW || digitalRead(PIN_MUTE_EXT_BTN) == LOW) {
-        if (!alarmAcknowledged) {
-            alarmAcknowledged = true;
-            Serial.println("[ALARM] >>> Operator Pressed MUTE Button: Buzzer Silenced (Red LED remains active) <<<");
+    // Check Alarm Acknowledge / Mute button press (Bidirectional Toggle with 500ms debounce)
+    static unsigned long lastBtnPress = 0;
+    if ((digitalRead(PIN_MUTE_BOOT_BTN) == LOW || digitalRead(PIN_MUTE_EXT_BTN) == LOW) && (currentMillis - lastBtnPress > 500)) {
+        lastBtnPress = currentMillis;
+        alarmAcknowledged = !alarmAcknowledged;
+        if (alarmAcknowledged) {
+            Serial.println("[ALARM] >>> Operator Pressed Hardware Button: Buzzer Muted <<<");
+            silenceBuzzer();
+        } else {
+            Serial.println("[ALARM] >>> Operator Pressed Hardware Button: Buzzer Unmuted / Armed <<<");
         }
     }
 
