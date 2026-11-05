@@ -95,20 +95,31 @@ float readAdcVoltage(int pin, int samples = 64) {
 float lastTurbVoltage = 0.0f;
 float lastTdsVoltage = 0.0f;
 
+// Exponential Moving Average (EMA) filters to prevent rapid LED flickering from liquid ripples or bubbles
+static float smoothTurbVoltage = -1.0f;
+static float smoothTdsVoltage  = -1.0f;
+
 float readTurbidity(float vTemp) {
-    float voltage = readAdcVoltage(PIN_TURBIDITY, 64);
-    lastTurbVoltage = voltage;
-    float ntu = 0.0f;
-    // Calibrated for 3.3V VCC supply:
-    // In clean tap water, phototransistor voltage sits around 2.1V - 2.8V (Pristine: < 1-5 NTU)
-    // In turbid/silty water, voltage drops below 2.0V
-    // In dark/slurry/blocked conditions, voltage drops below 1.0V (Severe: > 25 NTU)
-    if (voltage >= 2.1f) {
-        ntu = 0.5f + max(0.0f, (2.7f - voltage) * 2.0f);
-    } else if (voltage >= 1.2f) {
-        ntu = 5.0f + (2.1f - voltage) * (20.0f / 0.9f);
+    float rawVoltage = readAdcVoltage(PIN_TURBIDITY, 64);
+    if (smoothTurbVoltage < 0.0f) {
+        smoothTurbVoltage = rawVoltage;
     } else {
-        ntu = 25.0f + (1.2f - voltage) * (1000.0f / 1.2f);
+        smoothTurbVoltage = (0.4f * rawVoltage) + (0.6f * smoothTurbVoltage);
+    }
+    lastTurbVoltage = smoothTurbVoltage;
+
+    float voltage = smoothTurbVoltage;
+    float ntu = 0.0f;
+    // Calibrated for 3.3V VCC supply with EMA smoothing:
+    // In clean tap water, voltage sits around 2.0V - 3.2V (Pristine: 0.5 - 5.0 NTU)
+    // In turbid/silty water, voltage drops between 1.0V and 2.0V (Warning: 5 - 25 NTU)
+    // In dark/slurry/blocked conditions, voltage drops below 1.0V (Severe: > 25 NTU)
+    if (voltage >= 2.0f) {
+        ntu = 0.5f + max(0.0f, (2.8f - voltage) * 2.0f);
+    } else if (voltage >= 1.0f) {
+        ntu = 5.0f + (2.0f - voltage) * (20.0f / 1.0f);
+    } else {
+        ntu = 25.0f + (1.0f - voltage) * (1000.0f / 1.0f);
     }
     if (ntu < 0.5f) ntu = 0.5f;
     if (ntu > 3000.0f) ntu = 3000.0f;
@@ -116,8 +127,15 @@ float readTurbidity(float vTemp) {
 }
 
 float readTDS(float temperatureC) {
-    float voltage = readAdcVoltage(PIN_TDS, 64);
-    lastTdsVoltage = voltage;
+    float rawVoltage = readAdcVoltage(PIN_TDS, 64);
+    if (smoothTdsVoltage < 0.0f) {
+        smoothTdsVoltage = rawVoltage;
+    } else {
+        smoothTdsVoltage = (0.4f * rawVoltage) + (0.6f * smoothTdsVoltage);
+    }
+    lastTdsVoltage = smoothTdsVoltage;
+
+    float voltage = smoothTdsVoltage;
     float compensationCoefficient = 1.0f + 0.02f * (temperatureC - 25.0f);
     float compensationVoltage = voltage / compensationCoefficient;
 
@@ -155,6 +173,9 @@ void soundBuzzer(unsigned int freq = 2600) {
     tone(PIN_BUZZER, freq);
 }
 
+// Industrial SCADA State Machine with Schmitt-Trigger Hysteresis
+static String systemState = "NORMAL";
+
 WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
     // BIS IS 10500:2012 Indian Drinking Water Standards:
     // Turbidity: Desirable < 5.0 NTU, Permissible < 15.0 NTU
@@ -165,11 +186,32 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
 
     float wqi = max(0.0f, min(100.0f, 100.0f - (compositeAnomaly * 25.0f)));
 
+    // Schmitt-trigger hysteresis transitions prevent rapid LED/relay flickering
+    if (systemState == "NORMAL") {
+        if (compositeAnomaly >= 2.1f) {
+            systemState = "ALARM";
+        } else if (compositeAnomaly >= 1.25f) {
+            systemState = "WARNING";
+        }
+    } else if (systemState == "WARNING") {
+        if (compositeAnomaly >= 2.1f) {
+            systemState = "ALARM";
+        } else if (compositeAnomaly < 0.85f) {
+            systemState = "NORMAL";
+        }
+    } else { // ALARM
+        if (compositeAnomaly < 0.85f) {
+            systemState = "NORMAL";
+        } else if (compositeAnomaly < 1.75f) {
+            systemState = "WARNING";
+        }
+    }
+
     WaterDiagnosis diag;
     diag.wqi = wqi;
+    diag.state = systemState;
 
-    if (compositeAnomaly < 1.0f) {
-        diag.state = "NORMAL";
+    if (systemState == "NORMAL") {
         diag.signature = "Baseline / Pristine Quiescent";
         digitalWrite(PIN_LED_GREEN, HIGH);
         digitalWrite(PIN_LED_YELLOW, LOW);
@@ -179,8 +221,7 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
             Serial.println("[ALARM] Water quality normalized. Mute latch reset.");
         }
         silenceBuzzer();
-    } else if (compositeAnomaly < 2.0f) {
-        diag.state = "WARNING";
+    } else if (systemState == "WARNING") {
         diag.signature = (turb > 10.0f) ? "Turbidity Drift / Sediments" : "Elevated Mineral Dissolution";
         digitalWrite(PIN_LED_GREEN, LOW);
         digitalWrite(PIN_LED_YELLOW, HIGH);
@@ -194,7 +235,6 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
             silenceBuzzer();
         }
     } else {
-        diag.state = "ALARM";
         if (turb > 20.0f && tds > 750.0f) {
             diag.signature = "Severe Runoff / Surface Influx";
         } else if (turb > 20.0f) {
