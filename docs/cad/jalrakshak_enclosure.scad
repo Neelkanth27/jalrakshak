@@ -50,10 +50,11 @@ $fn = 40;
 // HELPER MODULES
 // ==========================================
 module rounded_box(x, y, z, r) {
-    translate([r, r, 0])
-    minkowski() {
-        cube([x - 2*r, y - 2*r, z - 1]);
-        cylinder(r=r, h=1);
+    hull() {
+        translate([r, r, 0]) cylinder(r=r, h=z);
+        translate([x - r, r, 0]) cylinder(r=r, h=z);
+        translate([r, y - r, 0]) cylinder(r=r, h=z);
+        translate([x - r, y - r, 0]) cylinder(r=r, h=z);
     }
 }
 
@@ -61,9 +62,47 @@ module rounded_box(x, y, z, r) {
 // 1. BASE ENCLOSURE (LOWER CHASSIS)
 // ==========================================
 module enclosure_base() {
+    esp_w = 48.0;
+    esp_l = 68.0;
+    esp_x = 18.0;
+    esp_y = 15.0;
+
     difference() {
-        // Solid outer body
-        rounded_box(box_length, box_width, box_height, corner_r);
+        union() {
+            // Solid outer body
+            rounded_box(box_length, box_width, box_height, corner_r);
+
+            // Corner Standoff Bosses for Lid Screws (Reinforced columns)
+            for (pos = [
+                [wall_th + 4, wall_th + 4],
+                [box_length - wall_th - 4, wall_th + 4],
+                [wall_th + 4, box_width - wall_th - 4],
+                [box_length - wall_th - 4, box_width - wall_th - 4]
+            ]) {
+                translate([pos[0], pos[1], floor_th])
+                    cylinder(d=8.0, h=box_height - floor_th);
+            }
+
+            // Cable Strain-Relief Anchor Post (Near right egress wall for zip-tie)
+            translate([box_length - wall_th - 14, cable_y_pos - 6, floor_th])
+                cube([5, 12, 14]);
+
+            // Internal PCB Mounting Standoffs for ESP32 Expansion Shield (Left Bay)
+            for (sp = [
+                [esp_x, esp_y],
+                [esp_x + esp_l, esp_y],
+                [esp_x, esp_y + esp_w],
+                [esp_x + esp_l, esp_y + esp_w]
+            ]) {
+                translate([sp[0], sp[1], floor_th])
+                    cylinder(d=6.5, h=5.0);
+            }
+
+            // Divider rib separating MCU from sensor driver boards (Right Bay)
+            driver_bay_x = esp_x + esp_l + 8.0;
+            translate([driver_bay_x, 15.0, floor_th])
+                cube([2.0, 65.0, 3.0]);
+        }
 
         // Hollow interior pocket
         translate([wall_th, wall_th, floor_th])
@@ -77,6 +116,10 @@ module enclosure_base() {
         translate([box_length - wall_th - 1, cable_y_pos - cable_slot_w/2, box_height - cable_slot_h])
             cube([wall_th + 2, cable_slot_w, cable_slot_h + 1]);
 
+        // Cable Strain-Relief Zip-Tie Slot
+        translate([box_length - wall_th - 15, cable_y_pos - 3, floor_th + 4])
+            cube([7, 6, 4]);
+
         // Corner M3 screw mounting pilot holes (4 corners)
         for (pos = [
             [wall_th + 4, wall_th + 4],
@@ -84,66 +127,21 @@ module enclosure_base() {
             [wall_th + 4, box_width - wall_th - 4],
             [box_length - wall_th - 4, box_width - wall_th - 4]
         ]) {
-            translate([pos[0], pos[1], floor_th])
+            translate([pos[0], pos[1], floor_th + 2])
                 cylinder(d=2.8, h=box_height); // M3 tap hole
         }
-    }
 
-    // Corner Standoff Bosses for Lid Screws (Reinforced columns)
-    for (pos = [
-        [wall_th + 4, wall_th + 4],
-        [box_length - wall_th - 4, wall_th + 4],
-        [wall_th + 4, box_width - wall_th - 4],
-        [box_length - wall_th - 4, box_width - wall_th - 4]
-    ]) {
-        difference() {
-            translate([pos[0], pos[1], floor_th])
-                cylinder(d=8.0, h=box_height - floor_th);
-            translate([pos[0], pos[1], floor_th])
-                cylinder(d=2.8, h=box_height);
-        }
-    }
-
-    // Cable Strain-Relief Anchor Post (Near right egress wall for zip-tie)
-    translate([box_length - wall_th - 12, cable_y_pos - 6, floor_th]) {
-        difference() {
-            cube([4, 12, 14]);
-            translate([-1, 3, 4])
-                cube([6, 6, 4]); // Zip-tie slot
-        }
-    }
-
-    // Internal PCB Mounting Standoffs for ESP32 Expansion Shield (Left Bay)
-    esp_w = 48.0;
-    esp_l = 68.0;
-    esp_x = 18.0;
-    esp_y = 15.0;
-
-    for (sp = [
-        [esp_x, esp_y],
-        [esp_x + esp_l, esp_y],
-        [esp_x, esp_y + esp_w],
-        [esp_x + esp_l, esp_y + esp_w]
-    ]) {
-        translate([sp[0], sp[1], floor_th]) {
-            difference() {
-                cylinder(d=6.5, h=5.0);
+        // ESP32 PCB Standoff Mounting Pilot Holes
+        for (sp = [
+            [esp_x, esp_y],
+            [esp_x + esp_l, esp_y],
+            [esp_x, esp_y + esp_w],
+            [esp_x + esp_l, esp_y + esp_w]
+        ]) {
+            translate([sp[0], sp[1], floor_th])
                 cylinder(d=2.4, h=6.0); // Self-tapping M2.5 screw hole
-            }
         }
     }
-
-    // ==========================================
-    // DEDICATED SENSOR DRIVER BOARD COMPARTMENT (Right Bay)
-    // Spacious 40mm × 85mm cavity accommodates:
-    // 1. Gravity Analog TDS Driver Board (32mm × 42mm)
-    // 2. Optical Turbidity SEN0189 Adapter Board (28mm × 38mm)
-    // Adjacent to the right-wall cable egress slot for clean cable routing.
-    // ==========================================
-    driver_bay_x = esp_x + esp_l + 8.0; // Starts at X=94mm
-    // Low guide rails (1.8mm high) to keep driver boards secured
-    translate([driver_bay_x, 15.0, floor_th])
-        cube([2.0, 65.0, 2.5]); // Divider rib separating MCU from analog front-ends
 }
 
 // ==========================================
