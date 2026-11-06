@@ -220,8 +220,8 @@ def make_telemetry_out(r: TelemetryRecord) -> TelemetryOut:
     temp = r.temp_c
     wqi = r.wqi
 
-    z_turb = max(0.0, round((turb - 10.0) / 15.0, 2))
-    z_tds = max(0.0, round((tds - 650.0) / 200.0, 2))
+    z_turb = max(0.0, round((turb - 10.0) / 12.0, 2))
+    z_tds = max(0.0, round((tds - 350.0) / 140.0, 2))
     z_temp = max(0.0, round(abs(temp - 25.0) / 2.0, 2))
     anomaly_score = round((z_turb**2 + z_tds**2)**0.5, 2)
 
@@ -261,10 +261,11 @@ def make_telemetry_out(r: TelemetryRecord) -> TelemetryOut:
 
 # Smart WQI & Contaminant Classification Logic (BIS IS 10500:2012 + Client Tap Baseline)
 def calculate_wqi_and_signature(turbidity: float, tds: float, temp: float):
-    # Generous Client-Adaptive Baseline:
-    # Standard Indian municipal/borewell tap water sits comfortably up to 650 ppm and < 10-25 NTU.
-    turb_score = max(0.0, (turbidity - 10.0) / 15.0)
-    tds_score = max(0.0, (tds - 650.0) / 200.0)
+    # Calibrated Baseline:
+    # Clean tap baseline sits comfortably < 350 ppm and < 10 NTU.
+    # On 3.3V power, Gravity TDS op-amp saturates at ~1.85V (~785 ppm) in heavy salt.
+    turb_score = max(0.0, (turbidity - 10.0) / 12.0)
+    tds_score = max(0.0, (tds - 350.0) / 140.0)
     
     composite_s = (turb_score**2 + tds_score**2) ** 0.5
     wqi = max(0.0, min(100.0, round(100.0 - (composite_s * 25.0), 1)))
@@ -274,19 +275,19 @@ def calculate_wqi_and_signature(turbidity: float, tds: float, temp: float):
         signature = "Baseline / Quiescent Nominal"
     elif wqi >= 50.0:
         state = "WARNING"
-        if turbidity > 25.0 and tds <= 650.0:
+        if turbidity > 20.0 and tds <= 500.0:
             signature = "Turbidity Drift / Sediments"
-        elif tds > 650.0 and turbidity <= 25.0:
+        elif tds > 500.0 and turbidity <= 20.0:
             signature = "Elevated Mineral Dissolution"
         else:
             signature = "Elevated Dissolved Solids & Turbidity"
     else:
         state = "ALARM"
-        if turbidity > 35.0 and tds > 850.0:
+        if turbidity > 30.0 and tds > 600.0:
             signature = "Severe Runoff / Surface Intrusion"
-        elif turbidity > 35.0:
+        elif turbidity > 30.0:
             signature = "Severe Sediment / Particulate Intrusion"
-        elif tds > 850.0:
+        elif tds > 600.0:
             signature = "Chemical / Saline Infiltration"
         else:
             signature = "Multi-Parameter Critical Contamination"

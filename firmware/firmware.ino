@@ -198,10 +198,11 @@ const unsigned long ALARM_QUALIFICATION_MS = 30000; // 30 seconds of continuous 
 
 WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
     // Bench Baseline & Client-Adaptive BIS IS 10500:2012 Drinking Water Calibration:
-    // Turbidity: Clean Baseline < 10.0 NTU, Silt/Soil Anomaly > 35.0 NTU
-    // TDS: Clean Tap Water < 650 ppm, Saline Anomaly > 850 ppm
-    float zTurb = max(0.0f, (turb - 10.0f) / 15.0f);
-    float zTds  = max(0.0f, (tds - 650.0f) / 200.0f);
+    // Turbidity: Clean Baseline < 10.0 NTU, Silt/Soil Anomaly > 30.0 NTU
+    // TDS: Clean Tap Water < 350 ppm, Warning > 520 ppm, Saline Anomaly > 650 ppm
+    // Note: On 3.3V power, Gravity TDS op-amp saturates at ~1.85V (~785 ppm) in heavy salt.
+    float zTurb = max(0.0f, (turb - 10.0f) / 12.0f);
+    float zTds  = max(0.0f, (tds - 350.0f) / 140.0f);
     float compositeAnomaly = sqrt(zTurb * zTurb + zTds * zTds);
 
     float wqi = max(0.0f, min(100.0f, 100.0f - (compositeAnomaly * 25.0f)));
@@ -244,15 +245,15 @@ WaterDiagnosis evaluateWaterQuality(float turb, float tds, float temp) {
         silenceBuzzer();
     } else if (systemState == "WARNING") {
         alarmConditionStart = 0; // Reset qualification timer
-        diag.signature = (turb > 25.0f) ? "Turbidity Drift / Sediments" : "Elevated Mineral Dissolution";
+        diag.signature = (turb > 20.0f) ? "Turbidity Drift / Sediments" : "Elevated Mineral Dissolution";
         digitalWrite(PIN_LED_GREEN, LOW);
         digitalWrite(PIN_LED_YELLOW, HIGH);
         digitalWrite(PIN_LED_RED, LOW);
         silenceBuzzer(); // Warning is purely visual (Yellow LED) to keep workspace quiet
     } else {
-        if (turb > 35.0f && tds > 850.0f) {
+        if (turb > 30.0f && tds > 600.0f) {
             diag.signature = "Severe Runoff / Surface Influx";
-        } else if (turb > 35.0f) {
+        } else if (turb > 30.0f) {
             diag.signature = "Severe Sediment / Particulate Intrusion";
         } else {
             diag.signature = "Chemical / Saline Infiltration";
