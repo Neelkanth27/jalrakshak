@@ -21,6 +21,8 @@ export const Header: React.FC<HeaderProps> = ({
   onExportReport,
   onExportCsv,
 }) => {
+  const isAlarm = state === 'HIGH ANOMALY' || (state as string) === 'ALARM';
+
   const getStateBadge = () => {
     if (!isConnected) {
       return {
@@ -120,19 +122,40 @@ export const Header: React.FC<HeaderProps> = ({
             <span>{badge.text}</span>
           </div>
 
-          {/* Buzzer Mute / Unmute Quick Toggle (If state is alarm/warning) */}
+          {/* Buzzer Mute / Unmute Quick Toggle: Disabled during NORMAL & WARNING; Active during ALARM */}
           {onToggleMute && (
             <button
-              onClick={onToggleMute}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition cursor-pointer ${
-                isMuted
-                  ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300 hover:bg-emerald-900'
-                  : 'bg-rose-950/80 border-rose-500/50 text-rose-300 hover:bg-rose-900'
+              onClick={isAlarm ? onToggleMute : undefined}
+              disabled={!isAlarm}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition select-none ${
+                !isAlarm
+                  ? 'bg-slate-900/60 border-slate-800 text-slate-400 cursor-not-allowed opacity-75'
+                  : isMuted
+                  ? 'bg-emerald-950/90 border-emerald-500/60 text-emerald-300 hover:bg-emerald-900 cursor-pointer shadow-sm active:scale-95'
+                  : 'bg-rose-600 hover:bg-rose-500 border-rose-400 text-white cursor-pointer shadow-md active:scale-95 animate-pulse'
               }`}
-              title={isMuted ? 'Buzzer is currently muted. Click to turn ON' : 'Buzzer is sounding. Click to turn OFF'}
+              title={
+                !isAlarm
+                  ? 'Siren is armed & in standby mode. Controls unlock during ALARM.'
+                  : isMuted
+                  ? 'Buzzer is currently muted. Click to turn buzzer back ON'
+                  : 'Alarm is sounding! Click to acknowledge and silence buzzer'
+              }
             >
-              {isMuted ? <Volume2 className="h-3.5 w-3.5 text-emerald-400" /> : <VolumeX className="h-3.5 w-3.5 text-rose-400" />}
-              <span>{isMuted ? 'Siren Muted' : 'Siren Active'}</span>
+              {isMuted ? (
+                <Volume2 className={`h-3.5 w-3.5 ${isAlarm ? 'text-emerald-400' : 'text-slate-500'}`} />
+              ) : (
+                <VolumeX className={`h-3.5 w-3.5 ${isAlarm ? 'text-white' : 'text-slate-500'}`} />
+              )}
+              <span>
+                {!isAlarm
+                  ? isMuted
+                    ? 'Siren Muted'
+                    : 'Siren Armed'
+                  : isMuted
+                  ? 'Buzzer Muted (Turn ON)'
+                  : 'Acknowledge & Mute Siren'}
+              </span>
             </button>
           )}
 

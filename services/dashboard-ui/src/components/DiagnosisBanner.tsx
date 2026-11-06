@@ -15,7 +15,7 @@ export const DiagnosisBanner: React.FC<DiagnosisBannerProps> = ({
   isMuted,
   onAcknowledgeAlarm,
 }) => {
-  const isAlarmOrWarning = state === 'HIGH ANOMALY' || (state as string) === 'ALARM' || state === 'WARNING';
+  const isAlarm = state === 'HIGH ANOMALY' || (state as string) === 'ALARM';
 
   const getBannerDetails = () => {
     switch (state) {
@@ -103,8 +103,8 @@ export const DiagnosisBanner: React.FC<DiagnosisBannerProps> = ({
           </div>
         </div>
 
-        {/* Right Side: Remote Mute / Unmute Siren Action */}
-        {isAlarmOrWarning && onAcknowledgeAlarm && (
+        {/* Right Side: Remote Mute / Unmute Siren Action (Only shown during ALARM) */}
+        {isAlarm && onAcknowledgeAlarm && (
           <div className="shrink-0 flex items-center md:self-center">
             {isMuted ? (
               <button
@@ -118,7 +118,7 @@ export const DiagnosisBanner: React.FC<DiagnosisBannerProps> = ({
             ) : (
               <button
                 onClick={onAcknowledgeAlarm}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm border border-rose-400/30"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition active:scale-95 cursor-pointer shadow-sm border border-rose-400/30 animate-pulse"
                 title="Alarm is sounding. Click to acknowledge and silence buzzer"
               >
                 <VolumeX className="h-4 w-4" />
