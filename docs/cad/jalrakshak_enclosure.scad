@@ -16,9 +16,9 @@ PART_TO_PRINT = "both"; // ["both", "base", "lid"]
 // ==========================================
 // PARAMETRIC DIMENSIONS (All units in millimeters)
 // ==========================================
-box_length      = 130.0; // Outer length (X)
-box_width       = 90.0;  // Outer width (Y)
-box_height      = 35.0;  // Base height (Z)
+box_length      = 135.0; // Outer length (X) — Generous room for ESP32 + 2 Driver Boards
+box_width       = 95.0;  // Outer width (Y)
+box_height      = 42.0;  // Base height (Z) — 42mm provides ample vertical arch for jumper wires
 wall_th         = 2.4;   // Wall thickness (6 perimeters on 0.4mm nozzle)
 floor_th        = 2.4;   // Floor thickness
 lid_th          = 2.4;   // Lid top face thickness
@@ -31,11 +31,11 @@ lid_clearance   = 0.35;  // Snap-fit clearance for FDM printers
 usb_w           = 13.0;  // Micro-USB / USB-C port width
 usb_h           = 8.5;   // Micro-USB / USB-C port height
 usb_z_offset    = 7.5;   // Height from bottom floor to USB centerline
-usb_y_pos       = 45.0;  // Y position of USB port along side wall
+usb_y_pos       = 47.5;  // Y position of USB port along side wall
 
-cable_slot_w    = 18.0;  // Egress slot for 3 sensor probe cables
-cable_slot_h    = 12.0;  // Height of egress slot
-cable_y_pos     = 45.0;  // Centered on opposite wall
+cable_slot_w    = 20.0;  // Egress slot for 3 sensor probe cables
+cable_slot_h    = 14.0;  // Height of egress slot
+cable_y_pos     = 47.5;  // Centered on opposite wall
 
 led_dia         = 5.3;   // 5mm LED through-hole (with 0.3mm print tolerance)
 led_spacing     = 14.0;  // Distance between LED centers
@@ -113,11 +113,11 @@ module enclosure_base() {
         }
     }
 
-    // Internal PCB Mounting Standoffs for ESP32 Expansion Shield
+    // Internal PCB Mounting Standoffs for ESP32 Expansion Shield (Left Bay)
     esp_w = 48.0;
     esp_l = 68.0;
-    esp_x = 20.0;
-    esp_y = 12.0;
+    esp_x = 18.0;
+    esp_y = 15.0;
 
     for (sp = [
         [esp_x, esp_y],
@@ -132,6 +132,18 @@ module enclosure_base() {
             }
         }
     }
+
+    // ==========================================
+    // DEDICATED SENSOR DRIVER BOARD COMPARTMENT (Right Bay)
+    // Spacious 40mm × 85mm cavity accommodates:
+    // 1. Gravity Analog TDS Driver Board (32mm × 42mm)
+    // 2. Optical Turbidity SEN0189 Adapter Board (28mm × 38mm)
+    // Adjacent to the right-wall cable egress slot for clean cable routing.
+    // ==========================================
+    driver_bay_x = esp_x + esp_l + 8.0; // Starts at X=94mm
+    // Low guide rails (1.8mm high) to keep driver boards secured
+    translate([driver_bay_x, 15.0, floor_th])
+        cube([2.0, 65.0, 2.5]); // Divider rib separating MCU from analog front-ends
 }
 
 // ==========================================

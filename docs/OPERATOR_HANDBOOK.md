@@ -15,15 +15,44 @@
 * **No External Battery Needed**: The entire node consumes $\approx 1.6\text{W}$ ($320\text{mA}$ peak), well below the 2.5W–4.5W provided by standard laptop USB ports.
 * **Boot Time**: Boots and stabilizes within **1.5 seconds**. All three LEDs (Green, Yellow, Red) will flash once on startup as a self-test.
 
-### 1.2 Wi-Fi & Hotspot Connection (Critical Step)
-The ESP32 connects to the internet via your smartphone or laptop Wi-Fi hotspot to stream telemetry to the cloud.
+### 1.2 Wi-Fi & Hotspot Connection (How to Connect to the Net)
 
-* **Hotspot SSID**: Check the SSID configured in your firmware (e.g. `Aths`).
-* **Hotspot Password**: Check the password configured in your firmware (e.g. `s27gb9yu`).
-* ⚠️ **THE #1 MISTAKE**: **Wi-Fi Band must be 2.4 GHz!**  
-  The ESP32 hardware radio only supports **2.4 GHz**, not 5 GHz.
-  * *On iPhone*: Turn on **"Maximize Compatibility"** in Personal Hotspot settings.
-  * *On Android*: Set **AP Band** to **2.4 GHz Band** (not 5 GHz).
+The ESP32 communicates directly with the cloud SCADA backend over Wi-Fi. You have **two ways** to connect:
+
+#### Method A: The 10-Second Hotspot Setup (Zero Coding / Recommended)
+To run your project immediately without opening any software or touching code:
+1. Open **Personal Hotspot** settings on your smartphone.
+2. Set the Hotspot Name (SSID) to: **`Aths`**
+3. Set the Hotspot Password to: **`s27gb9yu`**
+4. ⚠️ **ENABLE 2.4 GHz**:
+   - **iPhone**: Switch ON **"Maximize Compatibility"**.
+   - **Android**: Set AP Band to **2.4 GHz Band** (not 5 GHz).
+5. Turn the hotspot ON, then plug the ESP32 into your laptop USB port.
+6. The ESP32 will connect automatically in under 3 seconds!
+
+#### Method B: Changing to Your Own Wi-Fi / Hotspot via Arduino IDE
+If you want the ESP32 to connect to your personal home/college Wi-Fi or your own phone hotspot name:
+1. Connect the ESP32 to your laptop using the USB cable.
+2. Open the project file **`firmware/firmware.ino`** in **Arduino IDE**.
+3. Scroll to **Lines 57–58**:
+   ```cpp
+   // Enter your smartphone mobile hotspot name and password below:
+   const char* WIFI_SSID     = "Your_Hotspot_Name"; 
+   const char* WIFI_PASSWORD = "Your_Hotspot_Password";
+   ```
+4. Replace `"Your_Hotspot_Name"` and `"Your_Hotspot_Password"` with your actual Wi-Fi details (remember: must be a 2.4 GHz network).
+5. In Arduino IDE:
+   - Go to **Tools** $\to$ **Board** $\to$ **esp32** $\to$ select **"DOIT ESP32 DEVKIT V1"** (or "ESP32 Dev Module").
+   - Go to **Tools** $\to$ **Port** $\to$ select your ESP32's **COM port** (e.g. `COM3`, `COM4`).
+6. Click the **Upload** button (Right-arrow icon).
+7. Wait $\approx 25$ seconds until it says *"Done uploading"*.
+8. Open the Serial Monitor (magnifying glass icon, set to **115200 baud**). You will see:
+   ```text
+   === JALRAKSHAK ESP32 DEVKIT V1 INITIALIZING ===
+   ....
+   [Wi-Fi] Connected! Local IP: 192.168.x.x
+   ```
+9. Your hardware is now permanently configured for your network!
 
 ---
 
@@ -38,7 +67,7 @@ Proper handling of the sensor probes makes the difference between flawless data 
        └─────┬─────┘                 └──────┬──────┘                │            │
              │                              │                       │   METAL    │
       ┌──────┴──────┐                 ┌─────┴──────┐                │   TUBE     │
- ───  │ BLACK BODY  │ ── Water Line ──│ OPTICAL HEAD ── Water Line ──│ (Submerge  │ ───
+ ───  │ WHITE BODY  │ ── Water Line ──│ OPTICAL HEAD ── Water Line ──│ (Submerge  │ ───
       │ 2-3 cm ONLY │                 │ U-GAP ONLY │                │  5-10 cm)  │
       └─────┬─┬─────┘                 └─────┬─┬────┘                │            │
             │ │ (Metal Pins)                │ │ (Infrared Gap)      └────────────┘
@@ -52,9 +81,10 @@ Proper handling of the sensor probes makes the difference between flawless data 
 
 ### 2.2 Immersion Depths (How Deep to Dip):
 
-#### A. TDS Probe (Black probe with 2 metal prongs):
-* **Immersion Depth**: Submerge **only the bottom 2 to 3 cm (about 1 inch)** so that the two gold/titanium pins are completely underwater.
-* **Keep Dry**: Keep the top wire strain relief and the cable dry. Do NOT drop the entire probe submerged to the bottom of a bucket.
+#### A. TDS Probe (White cylindrical probe with 2 metal prongs):
+* **Appearance**: White molded plastic probe body with two exposed gold/titanium electrode pins at the tip.
+* **Immersion Depth**: Submerge **only the bottom 2 to 3 cm (about 1 inch)** so that the two metal pins are completely underwater.
+* **Keep Dry**: Keep the top cable joint dry. Do NOT submerge the entire cable underwater.
 * **Bubble Removal**: If you dip it in water and it reads 0 ppm, an air bubble might be trapped between the two pins. **Give the probe a gentle tap or stir** in the water to dislodge bubbles.
 
 #### B. Optical Turbidity Sensor (Black U-shaped probe):
@@ -168,3 +198,37 @@ When superiors or professors ask technical questions, use these concise, textboo
 
 #### Q: "Why does the temperature reading affect the TDS score?"
 > **Your Answer**: *"Water electrical conductivity has a temperature coefficient of approximately $+2.0\% \text{ per } ^\circ\text{C}$ because fluid viscosity drops and ions move faster at higher temperatures. Without compensation, normal summer heat would falsely trigger contamination alarms. Our firmware applies international $EC_{25}$ compensation to normalize all conductivity measurements back to the standard reference of $25.0^\circ\text{C}$."*
+
+---
+
+## 6. Enclosure Layout & Driver Boards Arrangement
+
+The 3D printed enclosure (`docs/cad/jalrakshak_enclosure.scad`) is designed with dedicated internal bays for all components:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      ENCLOSURE TOP VIEW                     │
+│                                                             │
+│  [LEFT BAY: MCU CONTROLLER]     [RIGHT BAY: SENSOR DRIVERS] │
+│  ┌────────────────────────┐     ┌────────────────────────┐  │
+│  │                        │     │ TDS Driver Board       │  │
+│  │ ESP32 DevKit V1 &      │     │ (32mm × 42mm)          │  │
+│  │ Expansion Shield       │     ├────────────────────────┤  │
+│  │ (Screw Terminals)      │     │ Turbidity SEN0189      │  │ ===> Cable
+│  │                        │     │ Adapter Board (38×28mm)│  │      Egress
+│  └────────────────────────┘     └────────────────────────┘  │      Slot
+│         ▲                                    ▲              │      (3 Probes)
+│   USB Port Cutout                    Divider Rib &          │
+│   (Side Wall)                        Zip-Tie Clamp          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 6.1 Does the Enclosure Have Space for the Sensor Drivers?
+**YES, absolutely.**
+* **Interior Dimensions**: $130.2\text{ mm (Length)} \times 90.2\text{ mm (Width)} \times 39.6\text{ mm (Height)}$.
+* **Left Bay**: Mounts the ESP32 expansion shield on 4 raised M2.5 standoffs directly aligning with the left-wall Micro-USB/USB-C cutout.
+* **Right Bay ($40\text{mm} \times 85\text{mm}$ Cavity)**: Specifically reserved to hold:
+  1. The **Gravity TDS Analog Adapter Board** ($32\text{mm} \times 42\text{mm}$).
+  2. The **Optical Turbidity SEN0189 Adapter Board** ($28\text{mm} \times 38\text{mm}$).
+* **Height Headroom ($42\text{ mm}$)**: Standard jumper wires arch upward by $15\text{ mm}$ when connected to screw terminals. The $42\text{ mm}$ total box height ensures that jumper wires and the active buzzer underneath the top lid fit comfortably without being squished or pinched.
+* **Cable Strain Relief**: The right egress slot includes an internal anchor post where you can wrap a small zip-tie around the 3 probe cables. This prevents accidental tugs on the cables from pulling wires out of the screw terminals.
