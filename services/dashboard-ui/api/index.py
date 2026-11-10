@@ -1,4 +1,4 @@
-"""JalRakshak Serverless Cloud API (Vercel + Neon Postgres).
+"""AquaSure Serverless Cloud API (Vercel + Neon Postgres).
 
 Features:
 - Telemetry Ingestion (POST /api/telemetry) with X-Device-Key security header
@@ -34,7 +34,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("jalrakshak-cloud-api")
+logger = logging.getLogger("aquasure-cloud-api")
 
 # Indian Standard Time (IST) Timezone: UTC + 5:30
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -55,7 +55,7 @@ class TelemetryRecord(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
-    device_id = Column(String(64), default="ESP32_JALRAKSHAK_01")
+    device_id = Column(String(64), default="ESP32_AQUASURE_01")
     turbidity_ntu = Column(Float, nullable=False)
     tds_ppm = Column(Float, nullable=False)
     temp_c = Column(Float, nullable=False)
@@ -69,7 +69,7 @@ class AnomalyEvent(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
-    device_id = Column(String(64), default="ESP32_JALRAKSHAK_01")
+    device_id = Column(String(64), default="ESP32_AQUASURE_01")
     wqi = Column(Float, nullable=False)
     state = Column(String(32), nullable=False)
     contaminant_signature = Column(String(64), nullable=False)
@@ -147,7 +147,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Pydantic Schemas
 class TelemetryIn(BaseModel):
-    device_id: str = "ESP32_JALRAKSHAK_01"
+    device_id: str = "ESP32_AQUASURE_01"
     turbidity_ntu: float = Field(..., ge=0.0, description="Optical Turbidity in NTU")
     tds_ppm: float = Field(..., ge=0.0, description="TDS in ppm (EC25 compensated)")
     temp_c: float = Field(..., ge=-10.0, le=100.0, description="Temperature in Celsius")
@@ -345,7 +345,7 @@ def dispatch_telegram_alert(out: TelemetryOut):
 
         emoji = "🚨"
         msg = (
-            f"{emoji} *JALRAKSHAK INDUSTRIAL ALERT: CRITICAL ANOMALY*\n"
+            f"{emoji} *AQUASURE INDUSTRIAL ALERT: CRITICAL ANOMALY*\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"⏱ *Timestamp:* `{ist_time_str}`\n"
             f"📊 *Water Quality Index (WQI):* `{out.wqi:.1f} / 100` ({out.wqi_grade})\n"
@@ -382,7 +382,7 @@ def verify_device_key(x_device_key: Optional[str] = Header(None)):
 
 # FastAPI Application
 app = FastAPI(
-    title="JalRakshak Cloud Serverless API",
+    title="AquaSure Cloud Serverless API",
     description="Edge-to-Cloud Telemetry Ingestion and Neon Postgres Persistence",
     version="1.0.0",
 )
@@ -402,7 +402,7 @@ app.add_middleware(
 def health_check():
     return {
         "status": "online",
-        "service": "JalRakshak Cloud Ingestion API",
+        "service": "AquaSure Cloud Ingestion API",
         "database": ACTIVE_DB_TYPE,
         "timestamp": datetime.utcnow().isoformat(),
     }
@@ -419,7 +419,7 @@ def get_latest_telemetry():
         # Default baseline if DB is empty
         dummy = TelemetryRecord(
             timestamp=datetime.utcnow(),
-            device_id="ESP32_JALRAKSHAK_01",
+            device_id="ESP32_AQUASURE_01",
             turbidity_ntu=2.1,
             tds_ppm=142.0,
             temp_c=24.5,
@@ -448,7 +448,7 @@ def get_telemetry_history(limit: int = 50, downsample: bool = True):
         if not records:
             dummy = TelemetryRecord(
                 timestamp=datetime.utcnow(),
-                device_id="ESP32_JALRAKSHAK_01",
+                device_id="ESP32_AQUASURE_01",
                 turbidity_ntu=2.1,
                 tds_ppm=142.0,
                 temp_c=24.5,

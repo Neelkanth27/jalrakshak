@@ -1,4 +1,4 @@
-# JalRakshak: Operator Handbook & Field Demonstration Guide
+# AquaSure: Operator Handbook & Field Demonstration Guide
 
 > **Author / Project Creator**: `devangmittal11@gmail.com`  
 > **System**: Low-Cost Multi-Sensor Edge-to-Cloud Water Quality SCADA Station  
@@ -48,7 +48,7 @@ If you want the ESP32 to connect to your personal home/college Wi-Fi or your own
 7. Wait $\approx 25$ seconds until it says *"Done uploading"*.
 8. Open the Serial Monitor (magnifying glass icon, set to **115200 baud**). You will see:
    ```text
-   === JALRAKSHAK ESP32 DEVKIT V1 INITIALIZING ===
+   === AQUASURE ESP32 DEVKIT V1 INITIALIZING ===
    ....
    [Wi-Fi] Connected! Local IP: 192.168.x.x
    ```
@@ -157,7 +157,7 @@ Here is the exact demonstration flow to follow when presenting to teachers, exam
 ### Stage 4: 1-Click Executive PDF Inspection Certificate
 1. With the data on screen, click the **"Inspection Certificate"** button in the top navigation bar.
 2. The browser instantly downloads a signed, official PDF report containing:
-   * Test batch ID, timestamp, and hardware node ID (`ESP32_JALRAKSHAK_01`).
+   * Test batch ID, timestamp, and hardware node ID (`ESP32_AQUASURE_01`).
    * Full measurement table vs. BIS IS 10500:2012 standards.
    * Root-cause diagnosis and formal sign-off lines.
 3. Hand the PDF to the evaluator or display it on screen!

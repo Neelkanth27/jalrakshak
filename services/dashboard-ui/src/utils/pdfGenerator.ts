@@ -14,7 +14,7 @@ export const generateInspectionCertificate = (data: TelemetryData) => {
   doc.setTextColor(6, 182, 212); // Cyan
   doc.setFontSize(20);
   doc.setFont('helvetica', 'bold');
-  doc.text('JALRAKSHAK WATER QUALITY AUDIT', 14, 20);
+  doc.text('AQUASURE WATER QUALITY AUDIT', 14, 20);
 
   doc.setTextColor(200, 200, 200);
   doc.setFontSize(10);
@@ -83,7 +83,7 @@ export const generateInspectionCertificate = (data: TelemetryData) => {
   doc.setTextColor(120, 120, 120);
   const disclaimerY = finalY + 36;
   doc.text(
-    'SAFETY AND TECHNICAL LIMITATION NOTICE:\nJalRakshak is an embedded engineering instrument designed for comparative screening and anomaly detection relative to established baselines. It does not certify official potability or microbiological compliance under ISO/BIS standards. Official potability determination requires certified laboratory analysis.',
+    'SAFETY AND TECHNICAL LIMITATION NOTICE:\nAquaSure is an embedded engineering instrument designed for comparative screening and anomaly detection relative to established baselines. It does not certify official potability or microbiological compliance under ISO/BIS standards. Official potability determination requires certified laboratory analysis.',
     14,
     disclaimerY,
     { maxWidth: pageWidth - 28 }
@@ -101,5 +101,5 @@ export const generateInspectionCertificate = (data: TelemetryData) => {
   doc.text('Client Representative / Buyer', pageWidth - 70, sigY + 6);
 
   // Save PDF
-  doc.save(`JalRakshak_Audit_Certificate_${Date.now()}.pdf`);
+  doc.save(`AquaSure_Audit_Certificate_${Date.now()}.pdf`);
 };

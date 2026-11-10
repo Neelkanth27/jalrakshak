@@ -1,4 +1,4 @@
-"""JalRakshak Core Ingestion & Telemetry Microservice.
+"""AquaSure Core Ingestion & Telemetry Microservice.
 
 FastAPI application providing:
 - PostgreSQL persistence (compatible with Vercel Postgres & Docker)
@@ -52,9 +52,9 @@ def verify_device_key(x_device_key: Optional[str] = Header(None)):
     return x_device_key
 
 app = FastAPI(
-    title="JalRakshak Ingestion & Telemetry API",
+    title="AquaSure Ingestion & Telemetry API",
     version="1.0.0",
-    description="Real-time telemetry ingestion, PostgreSQL persistence, WQI scoring, and anomaly event pipeline for JalRakshak.",
+    description="Real-time telemetry ingestion, PostgreSQL persistence, WQI scoring, and anomaly event pipeline for AquaSure.",
 )
 
 # Enable CORS for frontend dashboard
@@ -232,7 +232,7 @@ async def startup_event():
         logger.error(f"Failed to initialize database tables: {db_init_err}")
 
     # Initialize MQTT client in background thread
-    mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="jalrakshak-ingestion-api")
+    mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="aquasure-ingestion-api")
     mqtt_client.on_connect = on_mqtt_connect
     mqtt_client.on_message = on_mqtt_message
 
@@ -258,7 +258,7 @@ def healthcheck():
     """Healthcheck endpoint for Docker Compose and monitoring probes."""
     return {
         "status": "healthy",
-        "service": "jalrakshak-ingestion-api",
+        "service": "aquasure-ingestion-api",
         "mqtt_connected": mqtt_client.is_connected() if mqtt_client else False,
         "active_ws_clients": len(active_websockets),
         "history_count": len(telemetry_history),

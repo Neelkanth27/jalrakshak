@@ -1,6 +1,6 @@
 /**
  * ==============================================================================
- * Project: JalRakshak — Low-Cost Multi-Sensor Water Quality Monitoring System
+ * Project: AquaSure — Low-Cost Multi-Sensor Water Quality Monitoring System
  * File: firmware/firmware.ino (Arduino IDE compatible single-file sketch)
  * ==============================================================================
  */
@@ -60,7 +60,7 @@ const char* WIFI_PASSWORD = "s27gb9yu";
 // Live Vercel Production Serverless Endpoint
 const char* CLOUD_API_URL = "https://jalrakshak-rosy.vercel.app/api/telemetry";
 const char* DEVICE_API_KEY = "jal_sec_dev_local_key";
-const char* DEVICE_ID      = "ESP32_JALRAKSHAK_01";
+const char* DEVICE_ID      = "ESP32_AQUASURE_01";
 
 // ==========================================
 // 3. OBJECT INITIALIZATION & GLOBAL STATE
@@ -360,7 +360,7 @@ void postTelemetryToCloud(float turb, float tds, float temp, const String& state
 void setup() {
     Serial.begin(115200);
     delay(500);
-    Serial.println("\n=== JALRAKSHAK ESP32 DEVKIT V1 INITIALIZING ===");
+    Serial.println("\n=== AQUASURE ESP32 DEVKIT V1 INITIALIZING ===");
 
     pinMode(PIN_TURBIDITY, INPUT);
     pinMode(PIN_TDS, INPUT);

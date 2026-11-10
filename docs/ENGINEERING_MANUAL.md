@@ -1,4 +1,4 @@
-# JalRakshak: Complete Technical Architecture, Signal Conditioning & Engineering Manual
+# AquaSure: Complete Technical Architecture, Signal Conditioning & Engineering Manual
 
 > **System Classification**: Low-Cost Multi-Sensor Edge-to-Cloud Water Quality SCADA & Predictive Anomaly Screening System  
 > **Target Standard**: Bureau of Indian Standards (BIS) IS 10500:2012 Drinking Water Specification  
@@ -10,7 +10,7 @@
 
 ## 1. Executive System Overview
 
-**JalRakshak** is an industrial-grade, embedded IoT instrumentation platform designed to continuously monitor potable water safety, calculate real-time Water Quality Index (WQI) scores, identify specific chemical vs. physical contaminant signatures, and trigger multi-channel alerts (local audio-visual and remote cloud/mobile).
+**AquaSure** is an industrial-grade, embedded IoT instrumentation platform designed to continuously monitor potable water safety, calculate real-time Water Quality Index (WQI) scores, identify specific chemical vs. physical contaminant signatures, and trigger multi-channel alerts (local audio-visual and remote cloud/mobile).
 
 The system replaces manual chemical testing with automated multi-sensor edge intelligence, coupling real-time hardware telemetry to a serverless cloud data platform and Progressive Web App (PWA) SCADA console.
 

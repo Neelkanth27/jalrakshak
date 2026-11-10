@@ -18,7 +18,7 @@ const INITIAL_TELEMETRY: TelemetryData = {
   z_temp: 0.1,
   anomaly_score: 0.22,
   state: 'NORMAL',
-  device_id: 'ESP32_JALRAKSHAK_01',
+  device_id: 'ESP32_AQUASURE_01',
   wqi: 94.5,
   wqi_grade: 'Grade A (Pristine Baseline)',
   contaminant_signature: 'Nominal Quiescent Baseline',
@@ -215,7 +215,7 @@ export const App: React.FC = () => {
 
         ws.onopen = () => {
           setIsConnected(true);
-          console.log('Connected to JalRakshak Telemetry WebSocket stream.');
+          console.log('Connected to AquaSure Telemetry WebSocket stream.');
         };
 
         ws.onmessage = (event) => {
@@ -315,7 +315,7 @@ export const App: React.FC = () => {
 
       {/* Industrial SCADA Footer */}
       <footer className="border-t border-slate-900 bg-slate-950 py-3.5 px-6 text-center text-xs text-slate-500 font-mono">
-        JALRAKSHAK SCADA TELEMETRY • STATION: STN-MH-PUNE-01 • CONTROLLER: ESP32-WROOM-32 (FreeRTOS) • COMPLIANCE: BIS IS 10500:2012
+        AQUASURE SCADA TELEMETRY • STATION: STN-MH-PUNE-01 • CONTROLLER: ESP32-WROOM-32 (FreeRTOS) • COMPLIANCE: BIS IS 10500:2012
       </footer>
     </div>
   );

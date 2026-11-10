@@ -1,10 +1,10 @@
-# JalRakshak: Multi-Sensor Water Quality Monitoring & Anomaly Detection System
+# AquaSure: Multi-Sensor Water Quality Monitoring & Anomaly Detection System
 
 [![Production Dashboard](https://img.shields.io/badge/Live_SCADA_PWA-jalrakshak--rosy.vercel.app-0284c7?style=flat&logo=vercel)](https://jalrakshak-rosy.vercel.app)
 [![Standard](https://img.shields.io/badge/Compliance-BIS_IS_10500:2012-emerald?style=flat)](https://jalrakshak-rosy.vercel.app)
 [![Telegram Bot](https://img.shields.io/badge/Alerts-@jalrakshak__test__bot-0088cc?style=flat&logo=telegram)](https://t.me/jalrakshak_test_bot)
 
-JalRakshak is an industrial-grade embedded IoT and edge-computing water monitoring system designed to detect chemical and physical anomalies in drinking water using an ESP32 microcontroller, optical nephelometric turbidity sensing, $EC_{25}$ compensated electrical conductivity (TDS), and high-precision fluid temperature measurement.
+AquaSure is an industrial-grade embedded IoT and edge-computing water monitoring system designed to detect chemical and physical anomalies in drinking water using an ESP32 microcontroller, optical nephelometric turbidity sensing, $EC_{25}$ compensated electrical conductivity (TDS), and high-precision fluid temperature measurement.
 
 ---
 

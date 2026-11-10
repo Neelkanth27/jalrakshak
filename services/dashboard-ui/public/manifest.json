@@ -1,6 +1,6 @@
 {
-  "short_name": "JalRakshak",
-  "name": "JalRakshak Multi-Sensor Water Quality",
+  "short_name": "AquaSure",
+  "name": "AquaSure Multi-Sensor Water Quality SCADA",
   "description": "Real-time water quality monitoring, WQI scoring, and anomaly detection.",
   "icons": [
     {

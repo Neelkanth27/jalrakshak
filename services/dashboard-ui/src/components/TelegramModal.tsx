@@ -26,7 +26,7 @@ export const TelegramModal: React.FC<TelegramModalProps> = ({ isOpen, onClose })
         'X-Device-Key': 'jal_sec_dev_local_key',
       },
       body: JSON.stringify({
-        device_id: 'ESP32_JALRAKSHAK_01',
+        device_id: 'ESP32_AQUASURE_01',
         turbidity_ntu: 28.5,
         tds_ppm: 620.0,
         temp_c: 26.5,

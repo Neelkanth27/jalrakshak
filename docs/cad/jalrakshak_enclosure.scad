@@ -1,6 +1,6 @@
 /**
  * ==============================================================================
- * Project: JalRakshak — Industrial Edge Water Quality Monitoring System
+ * Project: AquaSure — Industrial Edge Water Quality Monitoring System
  * File: docs/cad/jalrakshak_enclosure.scad
  * Description: 100% SUPPORT-FREE Parametric 3D Printable Enclosure accommodating:
  *              - 1x Full-Size 830-Point Breadboard (MB-102: 166mm x 55mm)
@@ -364,7 +364,7 @@ module enclosure_lid() {
         // Main Station Branding
         translate([box_length/2, box_width - 15, lid_th - 0.6])
             linear_extrude(height=1)
-            text("JALRAKSHAK SCADA NODE", size=5.5, font="Liberation Sans:style=Bold", halign="center", valign="center");
+            text("AQUASURE SCADA NODE", size=5.5, font="Liberation Sans:style=Bold", halign="center", valign="center");
 
         translate([box_length/2, 14, lid_th - 0.6])
             linear_extrude(height=1)

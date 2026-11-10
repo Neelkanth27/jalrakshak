@@ -1,4 +1,4 @@
-"""JalRakshak Telegram Alert Worker Microservice.
+"""AquaSure Telegram Alert Worker Microservice.
 
 Subscribes to 'jalrakshak/alerts' on MQTT and dispatches formatted,
 real-time notifications directly to the user's phone via Telegram Bot API.
@@ -80,14 +80,14 @@ def format_alert_message(data: dict) -> str:
 
     if state == "NORMAL":
         return (
-            f"✅ <b>JALRAKSHAK: Water Restored to Baseline</b>\n"
+            f"✅ <b>AQUASURE: Water Restored to Baseline</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"⏱ <b>Timestamp:</b> {timestamp}\n"
             f"📊 <b>Water Quality Index:</b> {wqi} / 100 (Grade A)\n"
             f"🟢 <b>Status:</b> All sensors within normal quiescent limits.\n"
         )
 
-    header = "🚨 <b>JALRAKSHAK CRITICAL ALARM</b>" if state == "HIGH ANOMALY" else "⚠️ <b>JALRAKSHAK WARNING</b>"
+    header = "🚨 <b>AQUASURE CRITICAL ALARM</b>" if state == "HIGH ANOMALY" else "⚠️ <b>AQUASURE WARNING</b>"
 
     return (
         f"{header}\n"
@@ -112,7 +112,7 @@ def on_connect(client, userdata, flags, rc, properties=None):
 
         # Send startup confirmation to Telegram if configured
         if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-            startup_msg = "🤖 <b>JalRakshak Alert Worker Online</b>\nLive monitoring active. Alerts will be posted here."
+            startup_msg = "🤖 <b>AquaSure Alert Worker Online</b>\nLive monitoring active. Alerts will be posted here."
             send_telegram_notification(startup_msg)
     else:
         logger.error(f"MQTT connection failed with code {rc}")
@@ -141,8 +141,8 @@ def on_message(client, userdata, msg):
 
 
 def main():
-    logger.info("Starting JalRakshak Alert Worker Microservice...")
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="jalrakshak-alert-worker")
+    logger.info("Starting AquaSure Alert Worker Microservice...")
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="aquasure-alert-worker")
     client.on_connect = on_connect
     client.on_message = on_message
 

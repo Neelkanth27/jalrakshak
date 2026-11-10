@@ -86,7 +86,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-extrabold tracking-tight text-white font-mono">JALRAKSHAK</h1>
+                <h1 className="text-base font-extrabold tracking-tight text-white font-mono">AQUASURE</h1>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
                   NODE-ESP32-01
                 </span>
