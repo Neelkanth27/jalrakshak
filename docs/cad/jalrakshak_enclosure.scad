@@ -11,7 +11,26 @@
 // ==========================================
 // RENDER CONFIGURATION (Change "both" to "base" or "lid" for slicing)
 // ==========================================
-PART_TO_PRINT = "both"; // ["both", "base", "lid"]
+// ==========================================
+// RENDER CONFIGURATION
+// When this file is included by other scripts, default to "none".
+// Set to "base", "lid", or "both" when previewing directly in OpenSCAD.
+// ==========================================
+PART_TO_PRINT = "none"; // ["none", "base", "lid", "both"]
+
+if (PART_TO_PRINT == "base") {
+    enclosure_base();
+} else if (PART_TO_PRINT == "lid") {
+    translate([box_length, 0, lid_th])
+        rotate([0, 180, 0])
+            enclosure_lid();
+} else if (PART_TO_PRINT == "both") {
+    enclosure_base();
+    translate([0, box_width + 15, 0])
+        translate([box_length, 0, lid_th])
+            rotate([0, 180, 0])
+                enclosure_lid();
+}
 
 // ==========================================
 // PARAMETRIC DIMENSIONS (All units in millimeters)
@@ -252,18 +271,4 @@ module enclosure_lid() {
             linear_extrude(height=1)
             text("BIS IS 10500:2012 COMPLIANT", size=3.0, font="Liberation Sans:style=Bold", halign="center", valign="center");
     }
-}
-
-// ==========================================
-// RENDER DISPATCH
-// ==========================================
-if (PART_TO_PRINT == "base") {
-    enclosure_base();
-} else if (PART_TO_PRINT == "lid") {
-    enclosure_lid();
-} else {
-    // Both parts shown side by side for CAD assembly inspection
-    enclosure_base();
-    translate([0, box_width + 15, 0])
-        enclosure_lid();
 }
