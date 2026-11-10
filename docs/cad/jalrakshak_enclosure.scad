@@ -9,27 +9,32 @@
  */
 
 // ==========================================
-// RENDER CONFIGURATION (Change "both" to "base" or "lid" for slicing)
-// ==========================================
-// ==========================================
 // RENDER CONFIGURATION
-// When this file is included by other scripts, default to "none".
-// Set to "base", "lid", or "both" when previewing directly in OpenSCAD.
+// Default is "both" so opening jalrakshak_enclosure.scad directly in OpenSCAD
+// immediately displays the entire 3D model (both base and lid side-by-side)!
+// Set to "base" or "lid" for single-part viewing.
 // ==========================================
-PART_TO_PRINT = "none"; // ["none", "base", "lid", "both"]
+PART_TO_PRINT = "both"; // ["base", "lid", "both"]
 
 if (PART_TO_PRINT == "base") {
     enclosure_base();
 } else if (PART_TO_PRINT == "lid") {
+    enclosure_lid_print_ready();
+} else if (PART_TO_PRINT == "both") {
+    enclosure_full_assembly();
+}
+
+module enclosure_lid_print_ready() {
+    // Flipped 180 deg flat on build plate (Z=0) for 100% support-free printing
     translate([box_length, 0, lid_th])
         rotate([0, 180, 0])
             enclosure_lid();
-} else if (PART_TO_PRINT == "both") {
+}
+
+module enclosure_full_assembly() {
     enclosure_base();
     translate([0, box_width + 15, 0])
-        translate([box_length, 0, lid_th])
-            rotate([0, 180, 0])
-                enclosure_lid();
+        enclosure_lid_print_ready();
 }
 
 // ==========================================
@@ -85,47 +90,50 @@ module enclosure_base() {
     esp_l = 68.0;
     esp_x = 18.0;
     esp_y = 15.0;
+    corner_offset = wall_th + 3.2;
 
     difference() {
         union() {
-            // Solid outer body
-            rounded_box(box_length, box_width, box_height, corner_r);
-
-            // Corner Standoff Bosses for Lid Screws (Reinforced columns)
-            for (pos = [
-                [wall_th + 4, wall_th + 4],
-                [box_length - wall_th - 4, wall_th + 4],
-                [wall_th + 4, box_width - wall_th - 4],
-                [box_length - wall_th - 4, box_width - wall_th - 4]
-            ]) {
-                translate([pos[0], pos[1], floor_th])
-                    cylinder(d=8.0, h=box_height - floor_th);
+            // 1. Hollow Outer Chassis (Outer walls minus interior pocket)
+            difference() {
+                rounded_box(box_length, box_width, box_height, corner_r);
+                translate([wall_th, wall_th, floor_th])
+                    rounded_box(box_length - 2*wall_th, box_width - 2*wall_th, box_height, max(0.5, corner_r - wall_th));
             }
 
-            // Cable Strain-Relief Anchor Post (Near right egress wall for zip-tie)
-            translate([box_length - wall_th - 14, cable_y_pos - 6, floor_th])
-                cube([5, 12, 14]);
+            // 2. Corner Standoff Bosses for Lid Screws (Reinforced columns, merged solidly into walls)
+            for (pos = [
+                [corner_offset, corner_offset],
+                [box_length - corner_offset, corner_offset],
+                [corner_offset, box_width - corner_offset],
+                [box_length - corner_offset, box_width - corner_offset]
+            ]) {
+                translate([pos[0], pos[1], floor_th - 0.5])
+                    cylinder(d=8.8, h=box_height - floor_th + 0.5);
+            }
 
-            // Internal PCB Mounting Standoffs for ESP32 Expansion Shield (Left Bay)
+            // 3. Cable Strain-Relief Anchor Post (Near right egress wall for zip-tie)
+            translate([box_length - wall_th - 14, cable_y_pos - 6, floor_th - 0.5])
+                cube([5, 12, 14.5]);
+
+            // 4. Internal PCB Mounting Standoffs for ESP32 Expansion Shield (Embedded 0.5mm into floor)
             for (sp = [
                 [esp_x, esp_y],
                 [esp_x + esp_l, esp_y],
                 [esp_x, esp_y + esp_w],
                 [esp_x + esp_l, esp_y + esp_w]
             ]) {
-                translate([sp[0], sp[1], floor_th])
-                    cylinder(d=6.5, h=5.0);
+                translate([sp[0], sp[1], floor_th - 0.5])
+                    cylinder(d=6.5, h=5.5);
             }
 
-            // Divider rib separating MCU from sensor driver boards (Right Bay)
+            // 5. Divider rib separating MCU from sensor driver boards (Right Bay)
             driver_bay_x = esp_x + esp_l + 8.0;
-            translate([driver_bay_x, 15.0, floor_th])
-                cube([2.0, 65.0, 3.0]);
+            translate([driver_bay_x, 15.0, floor_th - 0.5])
+                cube([2.0, 65.0, 3.5]);
         }
 
-        // Hollow interior pocket
-        translate([wall_th, wall_th, floor_th])
-            rounded_box(box_length - 2*wall_th, box_width - 2*wall_th, box_height, max(0.5, corner_r - wall_th));
+        // Penetrations & Holes:
 
         // Removable Micro-USB / USB-C Power Port (Left wall)
         translate([-1, usb_y_pos - usb_w/2, usb_z_offset])
@@ -139,26 +147,26 @@ module enclosure_base() {
         translate([box_length - wall_th - 15, cable_y_pos - 3, floor_th + 4])
             cube([7, 6, 4]);
 
-        // Corner M3 screw mounting pilot holes (4 corners)
+        // Corner M3 screw mounting pilot holes (4 corners, through top rim)
         for (pos = [
-            [wall_th + 4, wall_th + 4],
-            [box_length - wall_th - 4, wall_th + 4],
-            [wall_th + 4, box_width - wall_th - 4],
-            [box_length - wall_th - 4, box_width - wall_th - 4]
+            [corner_offset, corner_offset],
+            [box_length - corner_offset, corner_offset],
+            [corner_offset, box_width - corner_offset],
+            [box_length - corner_offset, box_width - corner_offset]
         ]) {
             translate([pos[0], pos[1], floor_th + 2])
-                cylinder(d=2.8, h=box_height); // M3 tap hole
+                cylinder(d=2.8, h=box_height - floor_th + 1); // M3 tap hole
         }
 
-        // ESP32 PCB Standoff Mounting Pilot Holes
+        // ESP32 PCB Standoff Mounting Pilot Holes (Through top of standoffs)
         for (sp = [
             [esp_x, esp_y],
             [esp_x + esp_l, esp_y],
             [esp_x, esp_y + esp_w],
             [esp_x + esp_l, esp_y + esp_w]
         ]) {
-            translate([sp[0], sp[1], floor_th])
-                cylinder(d=2.4, h=6.0); // Self-tapping M2.5 screw hole
+            translate([sp[0], sp[1], floor_th + 5.0 - 4.5])
+                cylinder(d=2.4, h=5.0); // Self-tapping M2.5 screw hole
         }
     }
 }
@@ -227,11 +235,12 @@ module enclosure_lid() {
         // ==========================================
         // 4× M3 CORNER SCREW COUNTERSINK HOLES
         // ==========================================
+        corner_offset = wall_th + 3.2;
         for (pos = [
-            [wall_th + 4, wall_th + 4],
-            [box_length - wall_th - 4, wall_th + 4],
-            [wall_th + 4, box_width - wall_th - 4],
-            [box_length - wall_th - 4, box_width - wall_th - 4]
+            [corner_offset, corner_offset],
+            [box_length - corner_offset, corner_offset],
+            [corner_offset, box_width - corner_offset],
+            [box_length - corner_offset, box_width - corner_offset]
         ]) {
             // Screw shank clearance
             translate([pos[0], pos[1], -lip_h - 1])
